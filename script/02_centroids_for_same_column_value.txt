@@ -1,0 +1,14 @@
+import geopandas as gpd
+
+# Load your data
+file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\__Roboczy\stops_alfa_temp.shp"  # Replace with your file path
+stops = gpd.read_file(file_path)
+
+# Group by the 'name' column and calculate centroids
+grouped = stops.groupby(['name', 'railway', 'layer'])['geometry'].apply(lambda x: x.unary_union.centroid)
+
+# Create a new GeoDataFrame
+centroid_gdf = gpd.GeoDataFrame(grouped, columns=['geometry']).reset_index()
+
+# Optionally, save this new GeoDataFrame to a file
+centroid_gdf.to_file("centroids.shp")

@@ -1,0 +1,31 @@
+import requests
+import geopandas as gpd
+import os
+
+def fetch_osm_data(bbox, filename):
+    overpass_url = "http://overpass-api.de/api/interpreter"
+    overpass_query = f"""
+    [out:xml][timeout:25];
+    (
+      node({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
+      <;
+    );
+    out body;
+    """
+    response = requests.get(overpass_url, params={'data': overpass_query})
+    with open(filename, 'wb') as file:
+        file.write(response.content)
+
+def get_bboxes_from_shapefile(shapefile_path):
+    gdf = gpd.read_file(shapefile_path)
+    return [feature.geometry.bounds for feature in gdf.itertuples()]
+
+shapefile_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\__Roboczy\Arkusze_OSM.shp"
+output_dir = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\OSM_data"  # Update this path
+
+bboxes = get_bboxes_from_shapefile(shapefile_path)
+
+for idx, bbox in enumerate(bboxes):
+    osm_filename = os.path.join(output_dir, f"osm_data_{idx}.osm")
+    fetch_osm_data(bbox, osm_filename)
+    print(f"Downloaded OSM data for bounding box {idx}")

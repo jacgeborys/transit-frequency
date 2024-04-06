@@ -1,0 +1,111 @@
+from qgis.core import QgsVectorLayer, QgsProject
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from shapely.geometry import Point, Polygon
+import overpy
+import json
+
+def fetch_osm_data(bbox, city_name):
+    ymin, xmin, ymax, xmax = bbox
+    api = overpy.Overpass()
+    query = f'''
+    [out:json][timeout:50];
+    (
+        node["railway"="tram_stop"]({xmin},{ymin},{xmax},{ymax});
+        node["railway"="station"]({xmin},{ymin},{xmax},{ymax});
+        node["railway"="stop"]({xmin},{ymin},{xmax},{ymax});
+        node["railway"="halt"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"="station"]["subway"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"="station"]["tram"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"="station"]["light_rail"="yes"]({xmin},{ymin},{xmax},{ymax});
+    );
+    (._;>;);
+    out body;
+    '''
+    
+    try:
+        print(f"Final Overpass Query: {query}")
+        
+        result = api.query(query)
+        
+        print(f"Raw API Response: {result}")
+        
+        features = []
+        for element in result.nodes + result.ways:
+            if isinstance(element, overpy.Node):
+                point = Point(float(element.lon), float(element.lat))
+            elif isinstance(element, overpy.Way):
+                polygon = Polygon([(float(node.lon), float(node.lat)) for node in element.nodes])
+                point = polygon.centroid
+            else:
+                continue
+            
+            properties = {k: element.tags.get(k, None) for k in ['railway', 'name', 'light_rail', 'subway', 'tram', 'train', 'monorail']}
+            
+            # Check for 'tram_stop' in 'railway' and convert it to 'tram'
+            if properties.get('railway') == 'tram_stop':
+                railway_type = 'tram'
+            else:
+                # Determine the railway type based on priority
+                railway_type = None
+                for key in ['light_rail', 'subway', 'tram', 'monorail']:
+                    if properties.get(key) == 'yes':
+                        railway_type = key
+                        break
+                if railway_type is None and properties.get('train') == 'yes':
+                    railway_type = 'train'
+            
+            # Update the 'railway' property and keep only relevant properties
+            if railway_type:
+                properties['railway'] = railway_type
+                relevant_properties = {k: v for k, v in properties.items() if k in ['railway', 'name']}
+            
+                features.append({
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [point.x, point.y]
+                    },
+                    "properties": relevant_properties
+                })
+                    
+        if len(features) == 0:
+            print(f"No transit stops found for {city_name}")        
+        geojson = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+        output_file = f"transit_{city_name}.geojson"
+        with open(output_file, 'w') as f:
+            json.dump(geojson, f)
+        return output_file
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+# Get the active layer (the one with the rectangles)
+layer = iface.activeLayer()
+
+# Check if a layer is selected
+if layer:
+    source_crs = layer.crs()
+    dest_crs = QgsCoordinateReferenceSystem(4326)
+    transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
+    
+    for feature in layer.getFeatures():
+        geom = feature.geometry()
+        geom.transform(transform)
+        bbox = geom.boundingBox().toRectF().getCoords()
+        city_name = feature['Name_EN']
+        print(f"Fetching data for {city_name} with bounding box {bbox}")
+        
+        output_file = fetch_osm_data(bbox, city_name)
+        
+        if output_file:
+            vlayer = QgsVectorLayer(output_file, f"Stations in {city_name}", "ogr")
+            
+            if not vlayer.isValid():
+                print(f"Layer failed to load for {city_name}!")
+            else:
+                QgsProject.instance().addMapLayer(vlayer)
+else:
+    print("No active layer selected!")
