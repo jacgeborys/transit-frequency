@@ -4,10 +4,11 @@ Uses OSMnx walking network + ego_graph to build 5-minute walking polygons.
 No API keys or rate limits.
 
 Usage:
-    python 03_generate_isochrones_local.py <operator>
+    python 03_generate_isochrones_local.py [data_folder]
 
-    operator: ztm, km, wkd, metro (or 'all' to process everything)
+    Defaults: _data/2026_08_02
 
+Reads stops_trip_count.csv (output of 01_calculate_trip_counts.py).
 Each isochrone carries route_ids from its stop so that overlapping isochrones
 can be deduplicated by transit line in downstream processing.
 """
@@ -25,7 +26,6 @@ from shapely.ops import unary_union
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
 NETWORK_DIR = PROJECT_DIR / "network"
-DATA_DIR = PROJECT_DIR / "_data" / "2024_03_27"
 
 NETWORK_FILE  = NETWORK_DIR / "warsaw_walking_network.graphml"
 NETWORK_CACHE = NETWORK_DIR / "warsaw_walking_network.pkl"
@@ -33,26 +33,6 @@ NETWORK_CACHE = NETWORK_DIR / "warsaw_walking_network.pkl"
 WALKING_SPEED = 4.5   # km/h
 TIME_LIMIT = 5        # minutes
 DISTANCE_M = TIME_LIMIT * (WALKING_SPEED * 1000 / 60)  # 375 m
-
-# Operator configs: input CSV path, output GPKG path
-OPERATORS = {
-    'ztm': {
-        'input': DATA_DIR / "ZTM" / "stops_trip_count_ZTM.csv",
-        'output': DATA_DIR / "ZTM" / "isochrones" / "ZTM_isochrones.gpkg",
-    },
-    'km': {
-        'input': DATA_DIR / "KM" / "stops_trip_count_KM.csv",
-        'output': DATA_DIR / "KM" / "isochrones" / "KM_isochrones.gpkg",
-    },
-    'wkd': {
-        'input': DATA_DIR / "WKD" / "stops_trip_count_wkd.csv",
-        'output': DATA_DIR / "WKD" / "isochrones" / "WKD_isochrones.gpkg",
-    },
-    'metro': {
-        'input': DATA_DIR / "metro" / "stops_trip_count_metro.csv",
-        'output': DATA_DIR / "metro" / "isochrones" / "metro_isochrones.gpkg",
-    },
-}
 
 
 def load_network():
@@ -128,36 +108,37 @@ def create_isochrone(G, point, distance_m):
     return isochrone_wgs84
 
 
-def process_operator(operator_id, G):
-    """Generate isochrones for a single operator."""
-    config = OPERATORS[operator_id]
-    input_file = config['input']
-    output_file = config['output']
+def main():
+    default_data = PROJECT_DIR / "_data" / "2026_08_02"
+    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_data
+    input_file = data_dir / "stops_trip_count.csv"
+    output_file = data_dir / "isochrones.gpkg"
 
-    print(f"\n{'='*60}")
-    print(f"  {operator_id.upper()} Isochrone Generator")
-    print(f"{'='*60}")
-    print(f"Input:  {input_file}")
-    print(f"Output: {output_file}")
+    print("=" * 60)
+    print("Isochrone Generator (Local - OSMnx)")
+    print("=" * 60)
+    print(f"Input:   {input_file}")
+    print(f"Output:  {output_file}")
     print(f"Walking: {TIME_LIMIT} min / {DISTANCE_M:.0f} m at {WALKING_SPEED} km/h\n")
 
     if not input_file.exists():
         print(f"Input not found: {input_file}")
-        print("Run the corresponding 01_*.py script first.")
+        print("Run 01_calculate_trip_counts.py first.")
         return
 
-    # Load stops
     stops = pd.read_csv(input_file, dtype={'stop_id': str, 'route_ids': str})
     print(f"Loaded {len(stops)} stops")
 
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+    G = load_network()
+    if G is None:
+        return
 
     start_time = datetime.now()
     results = []
     skipped = 0
 
     for seq, (_, stop) in enumerate(stops.iterrows()):
-        if seq % 100 == 0 and seq > 0:
+        if seq % 200 == 0 and seq > 0:
             elapsed = (datetime.now() - start_time).total_seconds()
             rate = elapsed / seq
             remaining = rate * (len(stops) - seq)
@@ -167,20 +148,28 @@ def process_operator(operator_id, G):
         polygon = create_isochrone(G, point, DISTANCE_M)
 
         if polygon is not None and not polygon.is_empty:
-            record = {
-                'stop_id': stop.get('stop_id', seq),
+            results.append({
+                'stop_id': stop['stop_id'],
+                'stop_name': stop.get('stop_name', ''),
                 'trip_count': int(stop.get('trip_count', 0)),
                 'unique_routes': int(stop.get('unique_routes', 0)),
                 'route_ids': stop.get('route_ids', ''),
+                'bus': int(stop.get('bus', 0)),
+                'tram': int(stop.get('tram', 0)),
+                'train': int(stop.get('train', 0)),
+                'metro': int(stop.get('metro', 0)),
                 'time_minutes': TIME_LIMIT,
                 'distance_m': DISTANCE_M,
                 'geometry': polygon,
-            }
-            results.append(record)
+            })
         else:
             skipped += 1
 
-    print(f"\nGenerated: {len(results)}/{len(stops)} (skipped {skipped})")
+    elapsed = (datetime.now() - start_time).total_seconds()
+    print(f"\n{'='*60}")
+    print(f"Generated: {len(results)}/{len(stops)} isochrones (skipped {skipped})")
+    print(f"Time: {elapsed/60:.1f} min")
+    print(f"{'='*60}")
 
     if not results:
         print("No isochrones generated!")
@@ -192,40 +181,8 @@ def process_operator(operator_id, G):
 
     gdf.to_file(output_file, driver="GPKG")
 
-    elapsed = (datetime.now() - start_time).total_seconds()
-    print(f"\nDone in {elapsed/60:.1f} min")
-    print(f"  Isochrones: {len(gdf)}")
-    print(f"  Avg area: {gdf['area_ha'].mean():.1f} ha")
+    print(f"\n  Avg area: {gdf['area_ha'].mean():.1f} ha")
     print(f"  Saved to: {output_file}")
-
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python 03_generate_isochrones_local.py <operator>")
-        print(f"  Operators: {', '.join(OPERATORS.keys())}, all")
-        sys.exit(1)
-
-    target = sys.argv[1].lower()
-
-    if target == 'all':
-        operators = list(OPERATORS.keys())
-    elif target in OPERATORS:
-        operators = [target]
-    else:
-        print(f"Unknown operator: {target}")
-        print(f"Choose from: {', '.join(OPERATORS.keys())}, all")
-        sys.exit(1)
-
-    G = load_network()
-    if G is None:
-        return
-
-    for op in operators:
-        process_operator(op, G)
-
-    print(f"\n{'='*60}")
-    print("All done!")
-    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
