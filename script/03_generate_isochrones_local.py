@@ -4,8 +4,9 @@ Uses OSMnx walking network + ego_graph to build 5-minute walking polygons.
 No API keys or rate limits.
 
 Usage:
-    python 03_generate_isochrones_local.py [data_folder]
+    python 03_generate_isochrones_local.py [--sample N] [data_folder]
 
+    --sample N   Process only the first N stops (for testing)
     Defaults: _data/2026_08_02
 
 Reads stops_trip_count.csv (output of 01_calculate_trip_counts.py).
@@ -16,12 +17,14 @@ import sys
 import pickle
 import geopandas as gpd
 import pandas as pd
-import osmnx as ox
+import numpy as np
 import networkx as nx
 from pathlib import Path
 from datetime import datetime
 from shapely.geometry import Point, LineString
 from shapely.ops import unary_union
+from pyproj import Transformer
+from scipy.spatial import cKDTree
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
@@ -33,6 +36,13 @@ NETWORK_CACHE = NETWORK_DIR / "warsaw_walking_network.pkl"
 WALKING_SPEED = 4.5   # km/h
 TIME_LIMIT = 5        # minutes
 DISTANCE_M = TIME_LIMIT * (WALKING_SPEED * 1000 / 60)  # 375 m
+BUFFER_M = 50         # buffer around nodes and edges
+
+# Warsaw bounding box (matches the walking network extent)
+WARSAW_BBOX = {
+    'south': 52.0977, 'north': 52.3690,
+    'west': 20.8519, 'east': 21.2711,
+}
 
 
 def load_network():
@@ -46,6 +56,7 @@ def load_network():
 
     if NETWORK_FILE.exists():
         print("Loading network from GraphML...", end=' ', flush=True)
+        import osmnx as ox
         G = ox.load_graphml(NETWORK_FILE)
         print(f"{len(G.nodes):,} nodes, {len(G.edges):,} edges")
         return G
@@ -54,65 +65,76 @@ def load_network():
     return None
 
 
-def create_isochrone(G, point, distance_m):
+def build_spatial_index(G):
     """
-    Create isochrone polygon by buffering reachable nodes and edges.
-
-    Args:
-        G: NetworkX walking graph
-        point: Shapely Point in WGS84
-        distance_m: Maximum walking distance in meters
-
-    Returns:
-        Shapely polygon (WGS84) or None
+    Build a KDTree for fast nearest-node lookups and pre-project coords to EPSG:2180.
+    Returns: (node_ids array, KDTree on lon/lat, dict node_id->(x_m, y_m))
     """
-    nearest_node = ox.distance.nearest_nodes(G, point.x, point.y)
+    print("Building spatial index + projecting coords...", end=' ', flush=True)
+    to_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
 
-    # Skip if nearest node is too far (stop outside network)
-    node_data = G.nodes[nearest_node]
-    node_pt = Point(node_data['x'], node_data['y'])
-    poi_metric = gpd.GeoSeries([point], crs="EPSG:4326").to_crs("EPSG:2180").iloc[0]
-    node_metric = gpd.GeoSeries([node_pt], crs="EPSG:4326").to_crs("EPSG:2180").iloc[0]
-    if poi_metric.distance(node_metric) > 500:
+    node_ids = []
+    lonlats = []
+    node_coords_metric = {}
+
+    for n, data in G.nodes(data=True):
+        node_ids.append(n)
+        lonlats.append((data['x'], data['y']))  # lon, lat
+        mx, my = to_metric.transform(data['x'], data['y'])  # lon, lat -> x, y
+        node_coords_metric[n] = (mx, my)
+
+    node_ids = np.array(node_ids)
+    lonlats = np.array(lonlats)
+    tree = cKDTree(lonlats)
+
+    print(f"Done ({len(node_ids):,} nodes)")
+    return node_ids, tree, node_coords_metric
+
+
+def find_nearest_node(tree, node_ids, lon, lat):
+    """Find nearest graph node using KDTree (near-instant)."""
+    _, idx = tree.query([lon, lat])
+    return node_ids[idx]
+
+
+def create_isochrone(G, point_metric, distance_m, node_coords, nearest_node):
+    """
+    Create isochrone polygon using pre-projected coordinates.
+    All geometry work done in EPSG:2180 (metric).
+    """
+    nx_m, ny_m = node_coords[nearest_node]
+    dist = ((point_metric[0] - nx_m)**2 + (point_metric[1] - ny_m)**2) ** 0.5
+    if dist > 500:
         return None
 
     subgraph = nx.ego_graph(G, nearest_node, radius=distance_m, distance='length')
     if len(subgraph.nodes) < 3:
         return None
 
-    # Buffer nodes (intersections)
-    node_points = [Point(G.nodes[n]['x'], G.nodes[n]['y']) for n in subgraph.nodes()]
-    nodes_metric = gpd.GeoSeries(node_points, crs="EPSG:4326").to_crs("EPSG:2180")
-    buffered_nodes = nodes_metric.buffer(50)
+    # Buffer nodes + edges in metric coords
+    node_buffers = [Point(node_coords[n]).buffer(BUFFER_M) for n in subgraph.nodes()]
+    edge_buffers = [
+        LineString([node_coords[u], node_coords[v]]).buffer(BUFFER_M)
+        for u, v in subgraph.edges()
+    ]
 
-    # Buffer edges (street segments) to fill gaps on long straight roads
-    edge_lines = []
-    for u, v in subgraph.edges():
-        u_pt = Point(G.nodes[u]['x'], G.nodes[u]['y'])
-        v_pt = Point(G.nodes[v]['x'], G.nodes[v]['y'])
-        edge_lines.append(LineString([u_pt, v_pt]))
-
-    if edge_lines:
-        edges_metric = gpd.GeoSeries(edge_lines, crs="EPSG:4326").to_crs("EPSG:2180")
-        buffered_edges = edges_metric.buffer(50)
-        all_buffers = list(buffered_nodes) + list(buffered_edges)
-        isochrone_metric = unary_union(all_buffers)
-    else:
-        isochrone_metric = unary_union(buffered_nodes.tolist())
-
-    isochrone_wgs84 = (
-        gpd.GeoSeries([isochrone_metric], crs="EPSG:2180")
-        .to_crs("EPSG:4326")
-        .iloc[0]
-    )
-    return isochrone_wgs84
+    return unary_union(node_buffers + edge_buffers)
 
 
 def main():
     default_data = PROJECT_DIR / "_data" / "2026_08_02"
-    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_data
+
+    # Parse args
+    args = sys.argv[1:]
+    sample_n = None
+    if '--sample' in args:
+        idx = args.index('--sample')
+        sample_n = int(args[idx + 1])
+        args = args[:idx] + args[idx+2:]
+
+    data_dir = Path(args[0]) if args else default_data
     input_file = data_dir / "stops_trip_count.csv"
-    output_file = data_dir / "isochrones.gpkg"
+    output_file = data_dir / ("isochrones_sample.gpkg" if sample_n else "isochrones.gpkg")
 
     print("=" * 60)
     print("Isochrone Generator (Local - OSMnx)")
@@ -127,27 +149,38 @@ def main():
         return
 
     stops = pd.read_csv(input_file, dtype={'stop_id': str, 'route_ids': str})
-    print(f"Loaded {len(stops)} stops")
+    if sample_n:
+        stops = stops.head(sample_n)
+        print(f"SAMPLE MODE: processing {len(stops)} stops")
+    else:
+        print(f"Loaded {len(stops)} stops")
 
     G = load_network()
     if G is None:
         return
 
+    # Build spatial index + pre-project coordinates (replaces slow ox.nearest_nodes)
+    node_ids, tree, node_coords = build_spatial_index(G)
+    to_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
+
+    print(f"\nGenerating isochrones...\n")
     start_time = datetime.now()
     results = []
     skipped = 0
 
     for seq, (_, stop) in enumerate(stops.iterrows()):
-        if seq % 200 == 0 and seq > 0:
+        if seq % 500 == 0 and seq > 0:
             elapsed = (datetime.now() - start_time).total_seconds()
             rate = elapsed / seq
             remaining = rate * (len(stops) - seq)
             print(f"  [{seq}/{len(stops)}] {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
 
-        point = Point(stop['stop_lon'], stop['stop_lat'])
-        polygon = create_isochrone(G, point, DISTANCE_M)
+        sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
+        nearest_node = find_nearest_node(tree, node_ids, stop['stop_lon'], stop['stop_lat'])
 
-        if polygon is not None and not polygon.is_empty:
+        polygon_metric = create_isochrone(G, (sx, sy), DISTANCE_M, node_coords, nearest_node)
+
+        if polygon_metric is not None and not polygon_metric.is_empty:
             results.append({
                 'stop_id': stop['stop_id'],
                 'stop_name': stop.get('stop_name', ''),
@@ -160,7 +193,7 @@ def main():
                 'metro': int(stop.get('metro', 0)),
                 'time_minutes': TIME_LIMIT,
                 'distance_m': DISTANCE_M,
-                'geometry': polygon,
+                'geometry': polygon_metric,
             })
         else:
             skipped += 1
@@ -175,12 +208,13 @@ def main():
         print("No isochrones generated!")
         return
 
-    gdf = gpd.GeoDataFrame(results, crs="EPSG:4326")
-    gdf_metric = gdf.to_crs("EPSG:2180")
-    gdf['area_ha'] = gdf_metric.geometry.area / 10000
-
+    print("Saving...", end=' ', flush=True)
+    gdf = gpd.GeoDataFrame(results, crs="EPSG:2180")
+    gdf['area_ha'] = gdf.geometry.area / 10000
+    gdf = gdf.to_crs("EPSG:4326")
     gdf.to_file(output_file, driver="GPKG")
 
+    print("Done")
     print(f"\n  Avg area: {gdf['area_ha'].mean():.1f} ha")
     print(f"  Saved to: {output_file}")
 
