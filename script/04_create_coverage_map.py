@@ -1,10 +1,14 @@
 """
 Create Coverage Map from Overlapping Transit Isochrones
-Planar subdivision approach — counts unique transit lines per area.
+Planar subdivision approach — counts deduplicated transit frequency per area.
 
-For each polygon piece created by overlapping isochrones, collects the union
-of route_ids from all covering isochrones and counts distinct routes.
-This prevents double-counting the same bus line from nearby stops.
+For each polygon piece created by overlapping isochrones:
+- Collects route_trip_counts from all covering isochrones
+- For each unique route, takes the max trip count (best stop for that line)
+- Sums those maxes = deduplicated trip count
+
+This prevents inflating frequency when the same bus line passes multiple
+nearby stops that all fall within walking distance.
 
 Usage:
     python 04_create_coverage_map.py [data_folder]
@@ -42,22 +46,52 @@ def fix_geometry(geom):
         return None
 
 
+def parse_route_trip_counts(rtc_str):
+    """Parse 'route:count,route:count,...' into dict {route_id: trip_count}."""
+    result = {}
+    if not rtc_str or rtc_str != rtc_str:  # handles NaN
+        return result
+    for pair in str(rtc_str).split(','):
+        if ':' in pair:
+            route, count = pair.rsplit(':', 1)
+            try:
+                result[route] = int(count)
+            except ValueError:
+                pass
+    return result
+
+
+def dedup_routes(group):
+    """
+    For a group of overlapping isochrones, deduplicate by route:
+    - For each unique route, take the max trip count across all stops
+    - Sum those maxes = deduplicated frequency
+    Returns: (unique_routes, deduped_trip_count)
+    """
+    best_per_route = {}
+    for rtc_str in group['route_trip_counts'].dropna():
+        for route, count in parse_route_trip_counts(rtc_str).items():
+            if route not in best_per_route or count > best_per_route[route]:
+                best_per_route[route] = count
+
+    return len(best_per_route), sum(best_per_route.values())
+
+
 def create_coverage_map(isochrones_gdf):
     """
     Planar subdivision:
     1. Fix all geometries
     2. Union all boundaries into a planar graph
     3. Polygonize into minimal pieces
-    4. For each piece, collect route_ids from overlapping isochrones
-    5. Count unique routes per piece
-    6. Dissolve adjacent pieces with the same count
+    4. For each piece, deduplicate routes across overlapping isochrones
+    5. Dissolve adjacent pieces with the same deduped trip count
     """
     print(f"\nCreating coverage map from {len(isochrones_gdf)} isochrones...\n")
 
     original_crs = isochrones_gdf.crs
     gdf = isochrones_gdf.to_crs("EPSG:2180").copy()
 
-    # Step 1: Fix geometries (keep route_ids attached)
+    # Step 1: Fix geometries
     print("Step 1: Fixing geometries...")
     valid_mask = []
     for idx, geom in enumerate(gdf.geometry):
@@ -98,11 +132,10 @@ def create_coverage_map(isochrones_gdf):
         print("ERROR: No polygons created")
         return None
 
-    # Step 4: Count unique routes per piece
-    print("Step 4: Counting unique routes per piece...")
+    # Step 4: Deduplicate routes per piece
+    print("Step 4: Deduplicating routes per piece...")
     pieces_gdf = gpd.GeoDataFrame(geometry=pieces, crs="EPSG:2180")
 
-    # Use representative points to find which isochrones cover each piece
     rep_points = pieces_gdf.geometry.representative_point()
     rep_gdf = gpd.GeoDataFrame(
         {'piece_idx': pieces_gdf.index},
@@ -110,36 +143,35 @@ def create_coverage_map(isochrones_gdf):
         crs="EPSG:2180"
     )
 
-    # Spatial join: for each representative point, find all isochrones it falls within
-    iso_with_routes = gdf[['geometry', 'route_ids']].copy()
-    iso_with_routes = iso_with_routes.reset_index(drop=True)
-
-    joined = gpd.sjoin(rep_gdf, iso_with_routes, how='left', predicate='within')
+    # Spatial join: for each piece, find all overlapping isochrones
+    iso_cols = gdf[['geometry', 'route_trip_counts']].copy().reset_index(drop=True)
+    joined = gpd.sjoin(rep_gdf, iso_cols, how='left', predicate='within')
     joined = joined.dropna(subset=['index_right'])
 
-    # For each piece, collect all route_ids and count unique ones
-    def count_unique_routes(group):
-        all_routes = set()
-        for route_str in group['route_ids'].dropna():
-            if route_str:
-                all_routes.update(route_str.split(','))
-        return len(all_routes)
+    # Deduplicate: for each piece, take max per route, sum
+    print("  Computing deduplicated trip counts...")
+    piece_stats = {}
+    for piece_idx, group in joined.groupby('piece_idx'):
+        unique_routes, deduped_trips = dedup_routes(group)
+        piece_stats[piece_idx] = (unique_routes, deduped_trips)
 
-    unique_counts = joined.groupby('piece_idx').apply(count_unique_routes)
-    pieces_gdf['unique_routes'] = pieces_gdf.index.map(unique_counts).fillna(0).astype(int)
-
-    # Also count raw isochrone overlaps (total stops reachable)
-    overlap_counts = joined.groupby('piece_idx').size()
-    pieces_gdf['stops_reachable'] = pieces_gdf.index.map(overlap_counts).fillna(0).astype(int)
+    pieces_gdf['unique_routes'] = pieces_gdf.index.map(
+        lambda i: piece_stats.get(i, (0, 0))[0]
+    ).astype(int)
+    pieces_gdf['deduped_trips'] = pieces_gdf.index.map(
+        lambda i: piece_stats.get(i, (0, 0))[1]
+    ).astype(int)
 
     pieces_gdf = pieces_gdf[pieces_gdf['unique_routes'] > 0].copy()
     print(f"  {len(pieces_gdf)} pieces with coverage\n")
 
-    # Step 5: Dissolve adjacent pieces with the same unique_routes count
+    # Step 5: Dissolve adjacent pieces with the same deduped trip count
     print("Step 5: Dissolving adjacent pieces...")
-    dissolved = pieces_gdf.dissolve(by='unique_routes', aggfunc={'stops_reachable': 'mean'}).reset_index()
+    dissolved = pieces_gdf.dissolve(
+        by='deduped_trips',
+        aggfunc={'unique_routes': 'first'}
+    ).reset_index()
     dissolved = dissolved.explode(index_parts=False).reset_index(drop=True)
-    dissolved['stops_reachable'] = dissolved['stops_reachable'].round().astype(int)
     print(f"  {len(dissolved)} polygons after dissolve\n")
 
     # Step 6: Cleanup
@@ -154,9 +186,9 @@ def create_coverage_map(isochrones_gdf):
     dissolved = dissolved[dissolved.geometry.area <= 5_000_000]
 
     dissolved['area_ha'] = dissolved.geometry.area / 10000
-    dissolved = dissolved[['unique_routes', 'stops_reachable', 'area_ha', 'geometry']].copy()
+    dissolved = dissolved[['deduped_trips', 'unique_routes', 'area_ha', 'geometry']].copy()
     dissolved = dissolved.to_crs(original_crs)
-    dissolved = dissolved.sort_values('unique_routes', ascending=False).reset_index(drop=True)
+    dissolved = dissolved.sort_values('deduped_trips', ascending=False).reset_index(drop=True)
 
     print(f"  Final: {len(dissolved)} polygons\n")
     return dissolved
@@ -171,7 +203,7 @@ def main():
 
     print("=" * 60)
     print("Transit Coverage Map Generator")
-    print("Planar subdivision — unique routes per area")
+    print("Deduplicated frequency per area")
     print("=" * 60)
     print(f"Input:  {input_file}")
     print(f"Output: {output_file}\n")
@@ -201,16 +233,18 @@ def main():
     print(f"Coverage map created in {elapsed/60:.1f} min")
     print(f"{'='*60}")
     print(f"\n  Polygons: {len(coverage):,}")
+    print(f"  Max deduped trips: {coverage['deduped_trips'].max()}")
     print(f"  Max unique routes: {coverage['unique_routes'].max()}")
     print(f"  Total coverage: {coverage['area_ha'].sum():.0f} ha")
 
-    print(f"\nBreakdown:")
-    for n in sorted(coverage['unique_routes'].unique(), reverse=True)[:15]:
-        sub = coverage[coverage['unique_routes'] == n]
-        print(f"  {n:>3} routes: {len(sub):>6,} polygons, {sub['area_ha'].sum():>8.1f} ha")
+    print(f"\nTop 15 by deduped trips:")
+    for n in sorted(coverage['deduped_trips'].unique(), reverse=True)[:15]:
+        sub = coverage[coverage['deduped_trips'] == n]
+        routes = sub['unique_routes'].iloc[0]
+        print(f"  {n:>5} trips ({routes:>3} routes): {len(sub):>5} polygons, {sub['area_ha'].sum():>7.1f} ha")
 
     print(f"\nSaved to: {output_file}")
-    print(f"\nIn QGIS: style by 'unique_routes' column, graduated, Yellow-Orange-Red")
+    print(f"\nIn QGIS: style by 'deduped_trips' column, graduated, Yellow-Orange-Red")
 
 
 if __name__ == '__main__':

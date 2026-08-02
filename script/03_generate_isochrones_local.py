@@ -187,6 +187,7 @@ def main():
                 'trip_count': int(stop.get('trip_count', 0)),
                 'unique_routes': int(stop.get('unique_routes', 0)),
                 'route_ids': stop.get('route_ids', ''),
+                'route_trip_counts': stop.get('route_trip_counts', ''),
                 'bus': int(stop.get('bus', 0)),
                 'tram': int(stop.get('tram', 0)),
                 'train': int(stop.get('train', 0)),

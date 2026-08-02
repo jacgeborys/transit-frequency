@@ -215,10 +215,22 @@ def main():
         .reset_index(name='route_ids')
     )
 
+    # Per-route trip counts: "102:55,123:60,174:40"
+    route_trip_counts = (
+        stop_times_filtered
+        .groupby(['stop_id', 'route_id'])
+        .size()
+        .reset_index(name='count')
+        .groupby('stop_id')
+        .apply(lambda g: ','.join(f"{r}:{c}" for r, c in zip(g['route_id'], g['count'])))
+        .reset_index(name='route_trip_counts')
+    )
+
     # --- Merge into stops ---
     result = stops_df.merge(vehicle_counts, on='stop_id', how='inner')
     result = result.merge(unique_routes, on='stop_id', how='left')
     result = result.merge(route_lists, on='stop_id', how='left')
+    result = result.merge(route_trip_counts, on='stop_id', how='left')
 
     # Ensure vehicle columns exist
     for col in ['bus', 'tram', 'train', 'metro']:
