@@ -25,180 +25,180 @@
       <!-- Kovesi "rainbow BGYRM": blue > green > yellow > red > magenta.
            Maximum hue variety, perceptually uniform. Alpha ramp 0.25-0.95. -->
 
-      <symbol name="0" type="fill" alpha="0.25">
+      <symbol name="0" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="0,47,245,64"/>
+            <Option name="color" type="QString" value="0,47,245,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="1" type="fill" alpha="0.30">
+      <symbol name="1" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="25,91,193,77"/>
+            <Option name="color" type="QString" value="25,91,193,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="2" type="fill" alpha="0.36">
+      <symbol name="2" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="34,119,144,92"/>
+            <Option name="color" type="QString" value="34,119,144,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="3" type="fill" alpha="0.42">
+      <symbol name="3" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="60,139,99,107"/>
+            <Option name="color" type="QString" value="60,139,99,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="4" type="fill" alpha="0.48">
+      <symbol name="4" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="66,158,49,122"/>
+            <Option name="color" type="QString" value="66,158,49,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="5" type="fill" alpha="0.54">
+      <symbol name="5" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="98,173,16,138"/>
+            <Option name="color" type="QString" value="98,173,16,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="6" type="fill" alpha="0.60">
+      <symbol name="6" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="144,184,20,153"/>
+            <Option name="color" type="QString" value="144,184,20,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="7" type="fill" alpha="0.65">
+      <symbol name="7" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="185,194,27,166"/>
+            <Option name="color" type="QString" value="185,194,27,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="8" type="fill" alpha="0.70">
+      <symbol name="8" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="224,202,34,179"/>
+            <Option name="color" type="QString" value="224,202,34,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="9" type="fill" alpha="0.74">
+      <symbol name="9" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="248,196,35,189"/>
+            <Option name="color" type="QString" value="248,196,35,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="10" type="fill" alpha="0.78">
+      <symbol name="10" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="249,174,31,199"/>
+            <Option name="color" type="QString" value="249,174,31,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="11" type="fill" alpha="0.82">
+      <symbol name="11" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="246,150,26,209"/>
+            <Option name="color" type="QString" value="246,150,26,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="12" type="fill" alpha="0.85">
+      <symbol name="12" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="243,124,22,217"/>
+            <Option name="color" type="QString" value="243,124,22,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="13" type="fill" alpha="0.87">
+      <symbol name="13" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="240,97,22,222"/>
+            <Option name="color" type="QString" value="240,97,22,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="14" type="fill" alpha="0.89">
+      <symbol name="14" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="243,86,57,227"/>
+            <Option name="color" type="QString" value="243,86,57,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="15" type="fill" alpha="0.91">
+      <symbol name="15" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="252,103,119,232"/>
+            <Option name="color" type="QString" value="252,103,119,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="16" type="fill" alpha="0.93">
+      <symbol name="16" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="255,124,183,237"/>
+            <Option name="color" type="QString" value="255,124,183,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
           </Option>
         </layer>
       </symbol>
-      <symbol name="17" type="fill" alpha="0.95">
+      <symbol name="17" type="fill" alpha="1.0">
         <layer class="SimpleFill">
           <Option type="Map">
-            <Option name="color" type="QString" value="253,145,250,242"/>
+            <Option name="color" type="QString" value="253,145,250,255"/>
             <Option name="outline_color" type="QString" value="0,0,0,0"/>
             <Option name="outline_style" type="QString" value="no"/>
             <Option name="style" type="QString" value="solid"/>
@@ -208,4 +208,5 @@
     </symbols>
   </renderer-v2>
   <blendMode>0</blendMode>
+  <layerOpacity>0.9</layerOpacity>
 </qgis>
