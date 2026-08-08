@@ -43,7 +43,7 @@ _data/<city>/YYYY_MM_DD/             -- Merged GTFS directory
     v
 render_map.py --city                 -- Dark-theme PNG render
 
-fetch_osm_basemap.py --city          -- Basemap layers (water, parks, roads, etc.)
+D:\QGIS\osm_basemap\fetch_osm_basemap.py  -- Standalone basemap fetcher (any city)
 ```
 
 ## Quick start (new city)
@@ -55,7 +55,7 @@ python 01_calculate_trip_counts.py --city poznan
 python 02_fetch_walking_network.py --city poznan
 python 03_generate_isochrones_local.py --city poznan
 python 04_create_coverage_map.py --city poznan
-python fetch_osm_basemap.py --city poznan
+python D:\QGIS\osm_basemap\fetch_osm_basemap.py --city poznan
 python render_map.py --city poznan
 ```
 
@@ -64,7 +64,7 @@ python render_map.py --city poznan
 ```
 _data/<city>/YYYY_MM_DD/   -- GTFS data + outputs (per city, per date)
 network/<city>/            -- Walking network cache
-basemap/<city>/            -- OSM basemap layers (water, parks, roads, buildings, etc.)
+D:\QGIS\osm_basemap\<city>\  -- OSM basemap layers (shared across projects)
 styles/                    -- QGIS QML styles
 png/                       -- Rendered maps
 ```

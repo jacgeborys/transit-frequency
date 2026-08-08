@@ -188,7 +188,7 @@ def get_city(name: str) -> dict:
     city['key'] = key
     city['data_dir'] = PROJECT_DIR / "_data" / key
     city['network_dir'] = PROJECT_DIR / "network" / key
-    city['osm_dir'] = PROJECT_DIR / "basemap" / key
+    city['osm_dir'] = Path("D:/QGIS/osm_basemap") / key
     return city
 
 
