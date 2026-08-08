@@ -497,6 +497,8 @@ def fetch_buildings_osmnx(bbox, output_file, crs_metric, n_tiles=4):
 def main():
     parser = argparse.ArgumentParser(description='Fetch OSM basemap data for a city')
     add_city_argument(parser)
+    parser.add_argument('--output', type=str, default=None,
+                        help='Output directory (default: basemap/<city>/)')
     parser.add_argument('--skip-buildings', action='store_true',
                         help='Skip building download (slow)')
     parser.add_argument('--only', type=str, default=None,
@@ -506,7 +508,7 @@ def main():
     city = get_city(args.city)
     bbox = city['bbox']
     crs_metric = city['crs_metric']
-    output_dir = city['osm_dir']
+    output_dir = Path(args.output) if args.output else city['osm_dir']
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bbox_str = f"{bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']}"
