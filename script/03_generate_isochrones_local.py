@@ -175,12 +175,14 @@ def main():
     results = []
     skipped = 0
 
+    report_interval = max(50, len(stops) // 20)  # ~5% increments, min 50
     for seq, (_, stop) in enumerate(stops.iterrows()):
-        if seq % 500 == 0 and seq > 0:
+        if seq % report_interval == 0 and seq > 0:
             elapsed = (datetime.now() - start_time).total_seconds()
             rate = elapsed / seq
             remaining = rate * (len(stops) - seq)
-            print(f"  [{seq}/{len(stops)}] {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
+            pct = seq / len(stops) * 100
+            print(f"  [{seq}/{len(stops)}] {pct:.0f}% — {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
 
         sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
         nearest_node = find_nearest_node(tree, node_ids, stop['stop_lon'], stop['stop_lat'])
