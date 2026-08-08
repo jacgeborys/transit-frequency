@@ -1,77 +1,55 @@
 """
-Fetch Walking Network for Warsaw
-Downloads and caches the full OSM walking network for the Warsaw bounding box.
-Uses OSMnx — no API keys needed.
+Fetch Walking Network for a city.
+Downloads and caches the full OSM walking network for the city's bounding box.
+Uses OSMnx -- no API keys needed.
 
-If the zabka project already has a cached network, this script will copy it
-instead of re-downloading.
+Usage:
+    python 02_fetch_walking_network.py --city warsaw
+    python 02_fetch_walking_network.py --city poznan
 """
+import argparse
 import osmnx as ox
+import pickle
 from pathlib import Path
 from datetime import datetime
-import pickle
-import shutil
 from shapely.geometry import box
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-NETWORK_DIR = SCRIPT_DIR.parent / "network"
-NETWORK_DIR.mkdir(parents=True, exist_ok=True)
+from cities import get_city, add_city_argument
 
-NETWORK_FILE  = NETWORK_DIR / "warsaw_walking_network.graphml"
-NETWORK_CACHE = NETWORK_DIR / "warsaw_walking_network.pkl"
-
-# Warsaw bounding box
-WARSAW_BBOX = {
-    'south': 52.0977,
-    'west':  20.8519,
-    'north': 52.3690,
-    'east':  21.2711,
-}
-
-# Zabka project network (reuse if available)
-ZABKA_NETWORK_DIR = Path(r"D:\QGIS\mapy_warszawy_misc\zabka\network")
-
-MAX_QUERY_AREA = 50_000_000  # 50 km²
+MAX_QUERY_AREA = 50_000_000  # 50 km^2
 
 
 def main():
-    print("=" * 60)
-    print("Walking Network Fetcher for Warsaw")
-    print("=" * 60)
-    print(f"Output: {NETWORK_DIR}\n")
+    parser = argparse.ArgumentParser(description='Fetch walking network')
+    add_city_argument(parser)
+    args = parser.parse_args()
 
-    if NETWORK_FILE.exists():
-        print(f"Network already exists at {NETWORK_FILE}")
+    city = get_city(args.city)
+    network_dir = city['network_dir']
+    network_dir.mkdir(parents=True, exist_ok=True)
+
+    network_file = network_dir / "walking_network.graphml"
+    network_cache = network_dir / "walking_network.pkl"
+
+    print("=" * 60)
+    print(f"Walking Network Fetcher — {city['name']}")
+    print("=" * 60)
+    print(f"Output: {network_dir}\n")
+
+    if network_file.exists():
+        print(f"Network already exists at {network_file}")
         print("Delete it manually and re-run if you want to refresh.")
         return
 
-    # Try to reuse the zabka project's cached network
-    zabka_pkl = ZABKA_NETWORK_DIR / "warsaw_walking_network.pkl"
-    zabka_graphml = ZABKA_NETWORK_DIR / "warsaw_walking_network.graphml"
-
-    if zabka_pkl.exists() and zabka_graphml.exists():
-        print("Found existing network in zabka project — copying...")
-        shutil.copy2(zabka_graphml, NETWORK_FILE)
-        shutil.copy2(zabka_pkl, NETWORK_CACHE)
-        print(f"  GraphML: {NETWORK_FILE.stat().st_size / 1024 / 1024:.1f} MB")
-        print(f"  Pickle:  {NETWORK_CACHE.stat().st_size / 1024 / 1024:.1f} MB")
-        print("Done!")
-        return
-
-    # Download fresh from OSM
+    bbox = city['bbox']
+    print(f"Bbox: {bbox['south']:.4f}-{bbox['north']:.4f} N, {bbox['west']:.4f}-{bbox['east']:.4f} E")
     print("Downloading walking network from OpenStreetMap...\n")
 
     ox.settings.log_console = True
     ox.settings.max_query_area_size = MAX_QUERY_AREA
     ox.settings.requests_pause = 2
 
-    bbox_polygon = box(
-        WARSAW_BBOX['west'],
-        WARSAW_BBOX['south'],
-        WARSAW_BBOX['east'],
-        WARSAW_BBOX['north'],
-    )
-
+    bbox_polygon = box(bbox['west'], bbox['south'], bbox['east'], bbox['north'])
     start_time = datetime.now()
 
     G = ox.graph_from_polygon(
@@ -87,13 +65,13 @@ def main():
     print(f"  Edges: {len(G.edges):,}")
 
     print("Saving GraphML...", end=' ', flush=True)
-    ox.save_graphml(G, NETWORK_FILE)
-    print(f"Done ({NETWORK_FILE.stat().st_size / 1024 / 1024:.1f} MB)")
+    ox.save_graphml(G, network_file)
+    print(f"Done ({network_file.stat().st_size / 1024 / 1024:.1f} MB)")
 
     print("Saving pickle...", end=' ', flush=True)
-    with open(NETWORK_CACHE, 'wb') as f:
+    with open(network_cache, 'wb') as f:
         pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
-    print(f"Done ({NETWORK_CACHE.stat().st_size / 1024 / 1024:.1f} MB)")
+    print(f"Done ({network_cache.stat().st_size / 1024 / 1024:.1f} MB)")
 
     print("\n" + "=" * 60)
     print("Done! Network ready for isochrone generation.")

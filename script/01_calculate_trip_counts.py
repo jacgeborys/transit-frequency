@@ -1,52 +1,31 @@
 """
-Calculate trip counts per stop from merged GTFS data (ZTM + KM + WKD + Metro).
-Uses calendar_dates.txt for date filtering and substring matching for service_ids
-(same approach as the animation pipeline).
+Calculate trip counts per stop from GTFS data.
+Uses calendar_dates.txt for date filtering and city-specific vehicle classification.
 
 Outputs a single CSV with all operators, vehicle types, unique routes, and route_ids.
 
 Usage:
-    python 01_calculate_trip_counts.py [YYYYMMDD] [data_folder]
+    python 01_calculate_trip_counts.py --city warsaw YYYYMMDD [data_folder]
+    python 01_calculate_trip_counts.py --city poznan YYYYMMDD
 
-    Defaults: date=20260824, folder=_data/2026_08_02
+    If data_folder is omitted, uses the most recent folder in _data/<city>/.
 """
 import sys
+import argparse
 from pathlib import Path
 from datetime import time
 
 import pandas as pd
 import numpy as np
 
+from cities import get_city, add_city_argument
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
-
-# Defaults
-DEFAULT_DATE = "20260824"
-DEFAULT_DATA = PROJECT_DIR / "_data" / "2026_08_02"
-
-# Vehicle classification (same rules as animation pipeline)
-VEHICLE_TYPE_RULES = {
-    'tram':  lambda rid: rid.isdigit() and len(rid) <= 2,
-    'bus':   lambda rid: rid.isdigit() and len(rid) == 3,
-    'train': lambda rid: (
-        rid.startswith(('S', 'R'))
-        or (rid.startswith('KM_R') and '_BUS' not in rid)
-        or (rid.startswith('wkd_') and 'bus' not in rid)
-    ),
-    'metro': lambda rid: rid.startswith('M') and len(rid) >= 2 and rid[1:].isdigit(),
-}
 
 # Time window: 6 AM - 10 PM
 TIME_START = time(6, 0)
 TIME_END = time(22, 0)
-
-
-def classify_vehicle(route_id: str) -> str:
-    route_id = str(route_id).strip()
-    for vtype, rule in VEHICLE_TYPE_RULES.items():
-        if rule(route_id):
-            return vtype
-    return 'bus'
 
 
 def parse_gtfs_time(time_str: str):
@@ -59,36 +38,32 @@ def parse_gtfs_time(time_str: str):
         return None
 
 
-def expand_metro_frequencies(data_dir: Path, target_date: str, active_service_ids: list) -> pd.DataFrame:
-    """Expand metro frequencies.txt into synthetic stop_times rows."""
+def expand_frequencies(data_dir: Path, active_service_ids: list, classify_fn) -> pd.DataFrame:
+    """Expand frequencies.txt into synthetic stop_times rows."""
     freq_path = data_dir / "frequencies.txt"
     if not freq_path.exists():
         return pd.DataFrame()
 
     frequencies = pd.read_csv(freq_path)
-    metro_freq = frequencies[
-        frequencies['trip_id'].str.startswith(('M1:', 'M2:'), na=False)
-    ]
-    if metro_freq.empty:
+    if frequencies.empty:
         return pd.DataFrame()
 
-    # Filter to active metro service_ids (short codes like 'PcM')
     trips = pd.read_csv(data_dir / "trips.txt", dtype=str)
-    template_ids = metro_freq['trip_id'].unique()
-    metro_templates = trips[trips['trip_id'].isin(template_ids)].copy()
+    template_ids = frequencies['trip_id'].unique()
+    freq_templates = trips[trips['trip_id'].isin(template_ids)].copy()
 
-    metro_svc = {s for s in active_service_ids if not s.startswith('20')}
-    if metro_svc:
-        metro_templates = metro_templates[metro_templates['service_id'].isin(metro_svc)]
-        metro_freq = metro_freq[metro_freq['trip_id'].isin(metro_templates['trip_id'])]
+    # Filter to active services
+    # For Warsaw metro: short codes like 'PcM' that don't start with '20'
+    freq_svc = {s for s in active_service_ids if not s.startswith('20')}
+    if freq_svc:
+        freq_templates = freq_templates[freq_templates['service_id'].isin(freq_svc)]
+        frequencies = frequencies[frequencies['trip_id'].isin(freq_templates['trip_id'])]
 
-    if metro_templates.empty:
+    if freq_templates.empty:
         return pd.DataFrame()
 
-    # Load metro stops from stop_times to get stop_id + coordinates
     stop_times = pd.read_csv(data_dir / "stop_times.txt", dtype={'stop_id': str})
-    metro_stop_times = stop_times[stop_times['trip_id'].isin(template_ids)]
-    metro_stop_ids = metro_stop_times['stop_id'].unique()
+    freq_stop_times = stop_times[stop_times['trip_id'].isin(template_ids)]
 
     def _secs(t):
         h, m, s = t.split(':')
@@ -100,15 +75,14 @@ def expand_metro_frequencies(data_dir: Path, target_date: str, active_service_id
         return f"{h:02d}:{m:02d}:{s:02d}"
 
     rows = []
-    for _, freq in metro_freq.iterrows():
-        tmpl = metro_templates[metro_templates['trip_id'] == freq['trip_id']]
+    for _, freq in frequencies.iterrows():
+        tmpl = freq_templates[freq_templates['trip_id'] == freq['trip_id']]
         if tmpl.empty:
             continue
         tmpl = tmpl.iloc[0]
         route_id = str(tmpl['route_id'])
 
-        # Get stops for this template trip
-        tmpl_stops = metro_stop_times[metro_stop_times['trip_id'] == freq['trip_id']]
+        tmpl_stops = freq_stop_times[freq_stop_times['trip_id'] == freq['trip_id']]
 
         start = _secs(freq['start_time'])
         end = _secs(freq['end_time'])
@@ -127,16 +101,38 @@ def expand_metro_frequencies(data_dir: Path, target_date: str, active_service_id
                 })
             t += headway
 
-    print(f"  Metro: {len(rows)} synthetic stop_time entries from frequencies.txt")
+    print(f"  Frequencies: {len(rows)} synthetic stop_time entries")
     return pd.DataFrame(rows)
 
 
+def find_latest_data_dir(city: dict) -> Path:
+    """Find the most recent data folder for a city."""
+    base = city['data_dir']
+    if not base.exists():
+        raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
+    data_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir() and (d / 'stops.txt').exists()],
+        key=lambda x: x.name, reverse=True
+    )
+    if not data_dirs:
+        raise FileNotFoundError(f"No GTFS data in {base}. Run 00_download_gtfs.py first.")
+    return data_dirs[0]
+
+
 def main():
-    target_date = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DATE
-    data_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_DATA
+    parser = argparse.ArgumentParser(description='Calculate trip counts per stop')
+    add_city_argument(parser)
+    parser.add_argument('date', nargs='?', help='Target date YYYYMMDD (default: auto-pick best weekday)')
+    parser.add_argument('data_folder', nargs='?', help='Data folder path (default: most recent)')
+    args = parser.parse_args()
+
+    city = get_city(args.city)
+    classify_vehicle = city['vehicle_classify']
+
+    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
 
     print("=" * 60)
-    print(f"Trip Count Calculator — {target_date}")
+    print(f"Trip Count Calculator — {city['name']}")
     print("=" * 60)
     print(f"Data: {data_dir}\n")
 
@@ -148,6 +144,20 @@ def main():
     calendar_df = pd.read_csv(data_dir / "calendar_dates.txt", dtype={'service_id': str})
     calendar_df['date'] = calendar_df['date'].astype(int)
     calendar_df['exception_type'] = calendar_df['exception_type'].astype(int)
+
+    # --- Determine target date ---
+    if args.date:
+        target_date = args.date
+    else:
+        # Auto-pick: first available Monday (weekday with most service)
+        active_dates = calendar_df[calendar_df['exception_type'] == 1]
+        services_per_date = active_dates.groupby('date')['service_id'].nunique().reset_index()
+        services_per_date.columns = ['date', 'services']
+        services_per_date = services_per_date.sort_values('services', ascending=False)
+        target_date = str(services_per_date.iloc[0]['date'])
+        print(f"Auto-selected date: {target_date} ({services_per_date.iloc[0]['services']} services)")
+
+    print(f"Target date: {target_date}\n")
 
     # --- Filter by date ---
     active_services = calendar_df[
@@ -172,10 +182,11 @@ def main():
     ].copy()
     stop_times_filtered = stop_times_filtered.merge(trip_route, on='trip_id', how='left')
 
-    # --- Expand metro frequencies ---
-    metro_rows = expand_metro_frequencies(data_dir, target_date, active_services)
-    if not metro_rows.empty:
-        stop_times_filtered = pd.concat([stop_times_filtered, metro_rows], ignore_index=True)
+    # --- Expand frequencies (metro, S-Bahn, etc.) ---
+    if city.get('has_frequencies'):
+        freq_rows = expand_frequencies(data_dir, active_services, classify_vehicle)
+        if not freq_rows.empty:
+            stop_times_filtered = pd.concat([stop_times_filtered, freq_rows], ignore_index=True)
 
     # --- Filter by time (6 AM - 10 PM) ---
     stop_times_filtered['time_parsed'] = stop_times_filtered['arrival_time'].apply(parse_gtfs_time)
@@ -190,7 +201,6 @@ def main():
     stop_times_filtered['vehicle'] = stop_times_filtered['route_id'].apply(classify_vehicle)
 
     # --- Aggregate per stop ---
-    # Total departures per vehicle type
     vehicle_counts = (
         stop_times_filtered
         .groupby(['stop_id', 'vehicle'])
@@ -199,7 +209,6 @@ def main():
         .reset_index()
     )
 
-    # Unique routes per stop
     unique_routes = (
         stop_times_filtered
         .groupby('stop_id')['route_id']
@@ -207,7 +216,6 @@ def main():
         .reset_index(name='unique_routes')
     )
 
-    # Route IDs as comma-separated string
     route_lists = (
         stop_times_filtered
         .groupby('stop_id')['route_id']
@@ -215,7 +223,6 @@ def main():
         .reset_index(name='route_ids')
     )
 
-    # Per-route trip counts: "102:55,123:60,174:40"
     route_trip_counts = (
         stop_times_filtered
         .groupby(['stop_id', 'route_id'])
@@ -232,7 +239,6 @@ def main():
     result = result.merge(route_lists, on='stop_id', how='left')
     result = result.merge(route_trip_counts, on='stop_id', how='left')
 
-    # Ensure vehicle columns exist
     for col in ['bus', 'tram', 'train', 'metro']:
         if col not in result.columns:
             result[col] = 0
@@ -242,7 +248,6 @@ def main():
     result['unique_routes'] = result['unique_routes'].fillna(0).astype(int)
     result['trip_count'] = result['bus'] + result['tram'] + result['train'] + result['metro']
 
-    # Drop stops with no daytime service
     result = result[result['trip_count'] > 0]
 
     # --- Save ---

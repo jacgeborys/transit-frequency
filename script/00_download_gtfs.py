@@ -1,36 +1,31 @@
 """
-Download and merge GTFS feeds for Warsaw transit.
-Sources: mkuran.pl (ZTM, Koleje Mazowieckie via polish_trains, WKD).
-Metro is included in ZTM's feed (frequencies.txt).
+Download and merge GTFS feeds for a city's transit system.
+
+For Warsaw: downloads ZTM + Koleje Mazowieckie + WKD and merges them.
+For other cities: downloads a single feed.
 
 After downloading, prints available date ranges so you can pick an analysis date.
 
 Usage:
-    python 00_download_gtfs.py                # download + show available dates
-    python 00_download_gtfs.py --dates-only   # just check dates in existing data
+    python 00_download_gtfs.py --city warsaw          # download + show dates
+    python 00_download_gtfs.py --city poznan           # download Poznań
+    python 00_download_gtfs.py --city warsaw --dates-only  # check dates only
 """
 import sys
 import shutil
 import zipfile
 import logging
+import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
 
 import pandas as pd
 import requests
 
+from cities import get_city, add_city_argument
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR.parent / "_data"
-
-# mkuran.pl feed URLs
-GTFS_URLS = {
-    'ztm': 'https://mkuran.pl/gtfs/warsaw.zip',
-    'polish_trains': 'https://mkuran.pl/gtfs/polish_trains.zip',
-    'wkd': 'https://mkuran.pl/gtfs/wkd.zip',
-}
 
 KM_PREFIX = 'km_'
 WKD_PREFIX = 'wkd_'
@@ -108,8 +103,26 @@ def load_calendar_dates(gtfs_dir: Path, service_ids: set) -> pd.DataFrame:
         raise FileNotFoundError(f'No calendar file in {gtfs_dir}')
 
 
+def ensure_calendar_dates(gtfs_dir: Path):
+    """If only calendar.txt exists, generate calendar_dates.txt from it."""
+    cal_dates = gtfs_dir / 'calendar_dates.txt'
+    cal_file = gtfs_dir / 'calendar.txt'
+
+    if cal_dates.exists():
+        return  # already have it
+
+    if not cal_file.exists():
+        raise FileNotFoundError(f'No calendar file in {gtfs_dir}')
+
+    logger.info('Expanding calendar.txt -> calendar_dates.txt')
+    cal = pd.read_csv(cal_file, dtype=str)
+    expanded = expand_calendar_txt(cal)
+    expanded.to_csv(cal_dates, index=False)
+    logger.info(f'  Generated {len(expanded)} calendar_dates entries')
+
+
 # ---------------------------------------------------------------------------
-# KM extraction (from polish_trains, filter by Mazowieckie agency)
+# Warsaw-specific: KM extraction (from polish_trains)
 # ---------------------------------------------------------------------------
 
 def extract_km_data(trains_dir: Path) -> dict:
@@ -142,7 +155,7 @@ def extract_km_data(trains_dir: Path) -> dict:
 
     km_cal = load_calendar_dates(trains_dir, km_service_ids)
 
-    # Prefix IDs (route_id kept as-is — already distinctive like R1, RE2)
+    # Prefix IDs
     km_trips['trip_id'] = KM_PREFIX + km_trips['trip_id']
     km_trips['shape_id'] = KM_PREFIX + km_trips['shape_id']
     km_trips['service_id'] = KM_PREFIX + km_trips['service_id']
@@ -160,14 +173,13 @@ def extract_km_data(trains_dir: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# WKD extraction
+# Warsaw-specific: WKD extraction
 # ---------------------------------------------------------------------------
 
 def extract_wkd_data(wkd_dir: Path) -> dict:
-    """Extract WKD data, apply wkd_ prefix. Rail routes vs bus replacements."""
+    """Extract WKD data, apply wkd_ prefix."""
     routes = pd.read_csv(wkd_dir / 'routes.txt', dtype=str)
     rail_ids = set(routes.loc[routes['route_type'].isin(['0', '1', '2']), 'route_id'])
-    bus_ids = set(routes['route_id']) - rail_ids
 
     trips = pd.read_csv(wkd_dir / 'trips.txt', dtype=str)
     wkd_trip_ids = set(trips['trip_id'])
@@ -240,7 +252,6 @@ def show_available_dates(combined_dir: Path):
 
     cal = pd.read_csv(cal_file, dtype=str)
     cal['date'] = cal['date'].astype(int)
-    # Only include added services (exception_type=1)
     cal = cal[cal['exception_type'] == '1']
 
     dates = sorted(cal['date'].unique())
@@ -248,7 +259,6 @@ def show_available_dates(combined_dir: Path):
         print("No service dates found.")
         return
 
-    # Parse to datetime for day-of-week info
     date_objs = [datetime.strptime(str(d), '%Y%m%d') for d in dates]
     day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -257,73 +267,55 @@ def show_available_dates(combined_dir: Path):
     print(f"Range: {dates[0]} to {dates[-1]}")
     print(f"{'='*60}")
 
-    # Count services per date to find good analysis days
     services_per_date = cal.groupby('date')['service_id'].nunique().reset_index()
     services_per_date.columns = ['date', 'services']
     services_per_date = services_per_date.sort_values('services', ascending=False)
 
-    # Show top dates by service count
     print(f"\nTop 10 dates by number of active services:")
     for _, row in services_per_date.head(10).iterrows():
         d = datetime.strptime(str(row['date']), '%Y%m%d')
         day = day_names[d.weekday()]
         print(f"  {row['date']} ({day}): {row['services']} services")
 
-    # Check specific target date
-    target = 20260902
-    if target in dates:
-        svc = int(services_per_date[services_per_date['date'] == target]['services'].iloc[0])
-        d = datetime.strptime(str(target), '%Y%m%d')
-        print(f"\n  Target {target} ({day_names[d.weekday()]}): AVAILABLE ({svc} services)")
-    else:
-        print(f"\n  Target {target}: NOT AVAILABLE")
-        # Find nearest available weekday
-        target_dt = datetime.strptime(str(target), '%Y%m%d')
-        nearest = min(date_objs, key=lambda d: abs((d - target_dt).days))
-        print(f"  Nearest available: {nearest.strftime('%Y%m%d')} ({day_names[nearest.weekday()]})")
-
     print()
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Download: single feed (most cities)
 # ---------------------------------------------------------------------------
 
-def main():
-    dates_only = '--dates-only' in sys.argv
+def download_single(city: dict, combined_dir: Path):
+    """Download a single GTFS feed — works for Poznań, Kraków, Gdańsk, Berlin, etc."""
+    raw_dir = city['data_dir'] / '_raw'
 
-    # Determine output directory
-    timestamp = datetime.now().strftime('%Y_%m_%d')
-    combined_dir = DATA_DIR / timestamp
+    feed_name, url = next(iter(city['gtfs'].items()))
+    feed_dir = download_and_extract(url, feed_name, raw_dir)
 
-    if dates_only:
-        # Find most recent data folder
-        data_dirs = sorted(
-            [d for d in DATA_DIR.iterdir() if d.is_dir() and (d / 'stops.txt').exists()],
-            key=lambda x: x.name, reverse=True
-        )
-        if not data_dirs:
-            print("No existing GTFS data found. Run without --dates-only first.")
-            return
-        show_available_dates(data_dirs[0])
-        return
+    # Copy to combined dir
+    combined_dir.mkdir(parents=True)
+    for f in feed_dir.glob('*.txt'):
+        shutil.copy(f, combined_dir / f.name)
+    logger.info(f'{feed_name} copied to {combined_dir}')
 
-    print("=" * 60)
-    print("GTFS Download & Merge (ZTM + KM + WKD)")
-    print("=" * 60)
-    print(f"Output: {combined_dir}\n")
+    # Ensure calendar_dates.txt exists
+    ensure_calendar_dates(combined_dir)
 
-    if combined_dir.exists():
-        print(f"Data folder {combined_dir} already exists.")
-        print("Delete it to re-download, or use --dates-only to check dates.")
-        show_available_dates(combined_dir)
-        return
+    # Clean up
+    shutil.rmtree(raw_dir)
+    logger.info('Cleaned up raw downloads')
 
-    # Download all feeds
-    raw_dir = DATA_DIR / '_raw'
-    ztm_dir = download_and_extract(GTFS_URLS['ztm'], 'ztm', raw_dir)
-    trains_dir = download_and_extract(GTFS_URLS['polish_trains'], 'polish_trains', raw_dir)
-    wkd_dir = download_and_extract(GTFS_URLS['wkd'], 'wkd', raw_dir)
+
+# ---------------------------------------------------------------------------
+# Download: Warsaw multi-feed merge
+# ---------------------------------------------------------------------------
+
+def download_warsaw(city: dict, combined_dir: Path):
+    """Download and merge ZTM + KM + WKD for Warsaw."""
+    raw_dir = city['data_dir'] / '_raw'
+
+    ztm_dir = download_and_extract(city['gtfs']['ztm'], 'ztm', raw_dir)
+    trains_dir = download_and_extract(city['gtfs']['polish_trains'], 'polish_trains', raw_dir)
+    wkd_dir = download_and_extract(city['gtfs']['wkd'], 'wkd', raw_dir)
 
     # Create combined directory from ZTM base
     combined_dir.mkdir(parents=True)
@@ -339,13 +331,54 @@ def main():
     logger.info('Merging WKD...')
     append_to_combined(combined_dir, extract_wkd_data(wkd_dir), 'WKD')
 
-    # Clean up raw downloads
+    # Clean up
     shutil.rmtree(raw_dir)
     logger.info('Cleaned up raw downloads')
 
-    print(f"\nCombined GTFS ready at: {combined_dir}")
 
-    # Show available dates
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description='Download GTFS feeds')
+    add_city_argument(parser)
+    parser.add_argument('--dates-only', action='store_true',
+                        help='Just check dates in existing data')
+    args = parser.parse_args()
+
+    city = get_city(args.city)
+    timestamp = datetime.now().strftime('%Y_%m_%d')
+    combined_dir = city['data_dir'] / timestamp
+
+    if args.dates_only:
+        data_dirs = sorted(
+            [d for d in city['data_dir'].iterdir() if d.is_dir() and (d / 'stops.txt').exists()],
+            key=lambda x: x.name, reverse=True
+        ) if city['data_dir'].exists() else []
+        if not data_dirs:
+            print(f"No existing GTFS data found for {city['name']}. Run without --dates-only first.")
+            return
+        show_available_dates(data_dirs[0])
+        return
+
+    print("=" * 60)
+    print(f"GTFS Download — {city['name']}")
+    print("=" * 60)
+    print(f"Output: {combined_dir}\n")
+
+    if combined_dir.exists():
+        print(f"Data folder {combined_dir} already exists.")
+        print("Delete it to re-download, or use --dates-only to check dates.")
+        show_available_dates(combined_dir)
+        return
+
+    if city['gtfs_merge'] == 'warsaw':
+        download_warsaw(city, combined_dir)
+    else:
+        download_single(city, combined_dir)
+
+    print(f"\nGTFS ready at: {combined_dir}")
     show_available_dates(combined_dir)
 
 

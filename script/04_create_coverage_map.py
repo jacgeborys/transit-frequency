@@ -1,6 +1,6 @@
 """
 Create Coverage Map from Overlapping Transit Isochrones
-Planar subdivision approach — counts deduplicated transit frequency per area.
+Planar subdivision approach -- counts deduplicated transit frequency per area.
 
 For each polygon piece created by overlapping isochrones:
 - Collects route_trip_counts from all covering isochrones
@@ -11,11 +11,10 @@ This prevents inflating frequency when the same bus line passes multiple
 nearby stops that all fall within walking distance.
 
 Usage:
-    python 04_create_coverage_map.py [data_folder]
-
-    Defaults: _data/2026_08_02
+    python 04_create_coverage_map.py --city warsaw [data_folder]
+    python 04_create_coverage_map.py --city poznan
 """
-import sys
+import argparse
 import geopandas as gpd
 import numpy as np
 from pathlib import Path
@@ -26,8 +25,7 @@ from shapely.validation import make_valid
 import warnings
 warnings.filterwarnings('ignore')
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
+from cities import get_city, add_city_argument
 
 
 def fix_geometry(geom):
@@ -66,7 +64,6 @@ def dedup_routes(group):
     For a group of overlapping isochrones, deduplicate by route:
     - For each unique route, take the max trip count across all stops
     - Sum those maxes = deduplicated frequency
-    Returns: (unique_routes, deduped_trip_count)
     """
     best_per_route = {}
     for rtc_str in group['route_trip_counts'].dropna():
@@ -77,7 +74,7 @@ def dedup_routes(group):
     return len(best_per_route), sum(best_per_route.values())
 
 
-def create_coverage_map(isochrones_gdf):
+def create_coverage_map(isochrones_gdf, crs_metric: str):
     """
     Planar subdivision:
     1. Fix all geometries
@@ -89,7 +86,7 @@ def create_coverage_map(isochrones_gdf):
     print(f"\nCreating coverage map from {len(isochrones_gdf)} isochrones...\n")
 
     original_crs = isochrones_gdf.crs
-    gdf = isochrones_gdf.to_crs("EPSG:2180").copy()
+    gdf = isochrones_gdf.to_crs(crs_metric).copy()
 
     # Step 1: Fix geometries
     print("Step 1: Fixing geometries...")
@@ -134,21 +131,19 @@ def create_coverage_map(isochrones_gdf):
 
     # Step 4: Deduplicate routes per piece
     print("Step 4: Deduplicating routes per piece...")
-    pieces_gdf = gpd.GeoDataFrame(geometry=pieces, crs="EPSG:2180")
+    pieces_gdf = gpd.GeoDataFrame(geometry=pieces, crs=crs_metric)
 
     rep_points = pieces_gdf.geometry.representative_point()
     rep_gdf = gpd.GeoDataFrame(
         {'piece_idx': pieces_gdf.index},
         geometry=rep_points,
-        crs="EPSG:2180"
+        crs=crs_metric
     )
 
-    # Spatial join: for each piece, find all overlapping isochrones
     iso_cols = gdf[['geometry', 'route_trip_counts']].copy().reset_index(drop=True)
     joined = gpd.sjoin(rep_gdf, iso_cols, how='left', predicate='within')
     joined = joined.dropna(subset=['index_right'])
 
-    # Deduplicate: for each piece, take max per route, sum
     print("  Computing deduplicated trip counts...")
     piece_stats = {}
     for piece_idx, group in joined.groupby('piece_idx'):
@@ -194,15 +189,37 @@ def create_coverage_map(isochrones_gdf):
     return dissolved
 
 
-def main():
-    default_data = PROJECT_DIR / "_data" / "2026_08_02"
-    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_data
+def find_latest_data_dir(city: dict) -> Path:
+    """Find the most recent data folder with isochrones."""
+    base = city['data_dir']
+    if not base.exists():
+        raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
+    data_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir() and (d / 'isochrones.gpkg').exists()],
+        key=lambda x: x.name, reverse=True
+    )
+    if not data_dirs:
+        raise FileNotFoundError(
+            f"No isochrones.gpkg in {base}. Run 03_generate_isochrones_local.py first."
+        )
+    return data_dirs[0]
 
+
+def main():
+    parser = argparse.ArgumentParser(description='Create coverage map')
+    add_city_argument(parser)
+    parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
+    args = parser.parse_args()
+
+    city = get_city(args.city)
+    crs_metric = city['crs_metric']
+
+    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
     input_file = data_dir / "isochrones.gpkg"
     output_file = data_dir / "coverage_map.gpkg"
 
     print("=" * 60)
-    print("Transit Coverage Map Generator")
+    print(f"Transit Coverage Map — {city['name']}")
     print("Deduplicated frequency per area")
     print("=" * 60)
     print(f"Input:  {input_file}")
@@ -218,7 +235,7 @@ def main():
     print(f"{len(isochrones)} loaded")
 
     start_time = datetime.now()
-    coverage = create_coverage_map(isochrones)
+    coverage = create_coverage_map(isochrones, crs_metric)
 
     if coverage is None or len(coverage) == 0:
         print("Failed to create coverage map!")
@@ -244,7 +261,6 @@ def main():
         print(f"  {n:>5} trips ({routes:>3} routes): {len(sub):>5} polygons, {sub['area_ha'].sum():>7.1f} ha")
 
     print(f"\nSaved to: {output_file}")
-    print(f"\nIn QGIS: style by 'deduped_trips' column, graduated, Yellow-Orange-Red")
 
 
 if __name__ == '__main__':

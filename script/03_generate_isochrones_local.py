@@ -4,16 +4,18 @@ Uses OSMnx walking network + ego_graph to build 5-minute walking polygons.
 No API keys or rate limits.
 
 Usage:
-    python 03_generate_isochrones_local.py [--sample N] [data_folder]
+    python 03_generate_isochrones_local.py --city warsaw [--sample N] [data_folder]
+    python 03_generate_isochrones_local.py --city poznan
 
     --sample N   Process only the first N stops (for testing)
-    Defaults: _data/2026_08_02
+    data_folder  Explicit path (default: most recent in _data/<city>/)
 
 Reads stops_trip_count.csv (output of 01_calculate_trip_counts.py).
 Each isochrone carries route_ids from its stop so that overlapping isochrones
 can be deduplicated by transit line in downstream processing.
 """
 import sys
+import argparse
 import pickle
 import geopandas as gpd
 import pandas as pd
@@ -26,52 +28,46 @@ from shapely.ops import unary_union
 from pyproj import Transformer
 from scipy.spatial import cKDTree
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
-NETWORK_DIR = PROJECT_DIR / "network"
-
-NETWORK_FILE  = NETWORK_DIR / "warsaw_walking_network.graphml"
-NETWORK_CACHE = NETWORK_DIR / "warsaw_walking_network.pkl"
+from cities import get_city, add_city_argument
 
 WALKING_SPEED = 4.5   # km/h
 TIME_LIMIT = 5        # minutes
 DISTANCE_M = TIME_LIMIT * (WALKING_SPEED * 1000 / 60)  # 375 m
 BUFFER_M = 50         # buffer around nodes and edges
 
-# Warsaw bounding box (matches the walking network extent)
-WARSAW_BBOX = {
-    'south': 52.0977, 'north': 52.3690,
-    'west': 20.8519, 'east': 21.2711,
-}
 
-
-def load_network():
+def load_network(city: dict):
     """Load pre-downloaded walking network. Try pickle first, fall back to GraphML."""
-    if NETWORK_CACHE.exists():
+    network_dir = city['network_dir']
+    cache_file = network_dir / "walking_network.pkl"
+    graphml_file = network_dir / "walking_network.graphml"
+
+    if cache_file.exists():
         print("Loading network from cache...", end=' ', flush=True)
-        with open(NETWORK_CACHE, 'rb') as f:
+        with open(cache_file, 'rb') as f:
             G = pickle.load(f)
         print(f"{len(G.nodes):,} nodes, {len(G.edges):,} edges")
         return G
 
-    if NETWORK_FILE.exists():
+    if graphml_file.exists():
         print("Loading network from GraphML...", end=' ', flush=True)
         import osmnx as ox
-        G = ox.load_graphml(NETWORK_FILE)
+        G = ox.load_graphml(graphml_file)
         print(f"{len(G.nodes):,} nodes, {len(G.edges):,} edges")
         return G
 
-    print("Network not found! Run 02_fetch_walking_network.py first.")
+    print(f"Network not found in {network_dir}!")
+    print("Run 02_fetch_walking_network.py first.")
     return None
 
 
-def build_spatial_index(G):
+def build_spatial_index(G, crs_metric: str):
     """
-    Build a KDTree for fast nearest-node lookups and pre-project coords to EPSG:2180.
+    Build a KDTree for fast nearest-node lookups and pre-project coords.
     Returns: (node_ids array, KDTree on lon/lat, dict node_id->(x_m, y_m))
     """
     print("Building spatial index + projecting coords...", end=' ', flush=True)
-    to_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
+    to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
     node_ids = []
     lonlats = []
@@ -79,8 +75,8 @@ def build_spatial_index(G):
 
     for n, data in G.nodes(data=True):
         node_ids.append(n)
-        lonlats.append((data['x'], data['y']))  # lon, lat
-        mx, my = to_metric.transform(data['x'], data['y'])  # lon, lat -> x, y
+        lonlats.append((data['x'], data['y']))
+        mx, my = to_metric.transform(data['x'], data['y'])
         node_coords_metric[n] = (mx, my)
 
     node_ids = np.array(node_ids)
@@ -92,16 +88,13 @@ def build_spatial_index(G):
 
 
 def find_nearest_node(tree, node_ids, lon, lat):
-    """Find nearest graph node using KDTree (near-instant)."""
+    """Find nearest graph node using KDTree."""
     _, idx = tree.query([lon, lat])
     return node_ids[idx]
 
 
 def create_isochrone(G, point_metric, distance_m, node_coords, nearest_node):
-    """
-    Create isochrone polygon using pre-projected coordinates.
-    All geometry work done in EPSG:2180 (metric).
-    """
+    """Create isochrone polygon using pre-projected coordinates."""
     nx_m, ny_m = node_coords[nearest_node]
     dist = ((point_metric[0] - nx_m)**2 + (point_metric[1] - ny_m)**2) ** 0.5
     if dist > 500:
@@ -111,7 +104,6 @@ def create_isochrone(G, point_metric, distance_m, node_coords, nearest_node):
     if len(subgraph.nodes) < 3:
         return None
 
-    # Buffer nodes + edges in metric coords
     node_buffers = [Point(node_coords[n]).buffer(BUFFER_M) for n in subgraph.nodes()]
     edge_buffers = [
         LineString([node_coords[u], node_coords[v]]).buffer(BUFFER_M)
@@ -121,26 +113,42 @@ def create_isochrone(G, point_metric, distance_m, node_coords, nearest_node):
     return unary_union(node_buffers + edge_buffers)
 
 
+def find_latest_data_dir(city: dict) -> Path:
+    """Find the most recent data folder for a city."""
+    base = city['data_dir']
+    if not base.exists():
+        raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
+    data_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir() and (d / 'stops_trip_count.csv').exists()],
+        key=lambda x: x.name, reverse=True
+    )
+    if not data_dirs:
+        raise FileNotFoundError(
+            f"No stops_trip_count.csv in {base}. Run 01_calculate_trip_counts.py first."
+        )
+    return data_dirs[0]
+
+
 def main():
-    default_data = PROJECT_DIR / "_data" / "2026_08_02"
+    parser = argparse.ArgumentParser(description='Generate walking isochrones')
+    add_city_argument(parser)
+    parser.add_argument('--sample', type=int, default=None, help='Process only N stops (testing)')
+    parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
+    args = parser.parse_args()
 
-    # Parse args
-    args = sys.argv[1:]
-    sample_n = None
-    if '--sample' in args:
-        idx = args.index('--sample')
-        sample_n = int(args[idx + 1])
-        args = args[:idx] + args[idx+2:]
+    city = get_city(args.city)
+    crs_metric = city['crs_metric']
 
-    data_dir = Path(args[0]) if args else default_data
+    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
     input_file = data_dir / "stops_trip_count.csv"
-    output_file = data_dir / ("isochrones_sample.gpkg" if sample_n else "isochrones.gpkg")
+    output_file = data_dir / ("isochrones_sample.gpkg" if args.sample else "isochrones.gpkg")
 
     print("=" * 60)
-    print("Isochrone Generator (Local - OSMnx)")
+    print(f"Isochrone Generator — {city['name']}")
     print("=" * 60)
     print(f"Input:   {input_file}")
     print(f"Output:  {output_file}")
+    print(f"CRS:     {crs_metric}")
     print(f"Walking: {TIME_LIMIT} min / {DISTANCE_M:.0f} m at {WALKING_SPEED} km/h\n")
 
     if not input_file.exists():
@@ -149,19 +157,18 @@ def main():
         return
 
     stops = pd.read_csv(input_file, dtype={'stop_id': str, 'route_ids': str})
-    if sample_n:
-        stops = stops.head(sample_n)
+    if args.sample:
+        stops = stops.head(args.sample)
         print(f"SAMPLE MODE: processing {len(stops)} stops")
     else:
         print(f"Loaded {len(stops)} stops")
 
-    G = load_network()
+    G = load_network(city)
     if G is None:
         return
 
-    # Build spatial index + pre-project coordinates (replaces slow ox.nearest_nodes)
-    node_ids, tree, node_coords = build_spatial_index(G)
-    to_metric = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
+    node_ids, tree, node_coords = build_spatial_index(G, crs_metric)
+    to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
     print(f"\nGenerating isochrones...\n")
     start_time = datetime.now()
@@ -210,7 +217,7 @@ def main():
         return
 
     print("Saving...", end=' ', flush=True)
-    gdf = gpd.GeoDataFrame(results, crs="EPSG:2180")
+    gdf = gpd.GeoDataFrame(results, crs=crs_metric)
     gdf['area_ha'] = gdf.geometry.area / 10000
     gdf = gdf.to_crs("EPSG:4326")
     gdf.to_file(output_file, driver="GPKG")
