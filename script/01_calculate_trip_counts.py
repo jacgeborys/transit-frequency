@@ -173,6 +173,24 @@ def main():
     trips_filtered = trips_df[mask].copy()
     print(f"Matching trips: {len(trips_filtered)}")
 
+    # --- Build route_type lookup from GTFS routes.txt ---
+    routes_df = pd.read_csv(data_dir / "routes.txt", dtype=str, encoding='utf-8-sig')
+    # GTFS route_type: 0=tram, 1=metro/subway, 2=rail, 3=bus, 5=cable, 7=funicular, 11=trolleybus, 12=monorail
+    gtfs_type_map = {'0': 'tram', '1': 'metro', '2': 'train', '3': 'bus',
+                     '5': 'bus', '7': 'bus', '11': 'bus', '12': 'train'}
+    route_type_lookup = {}
+    for _, r in routes_df.iterrows():
+        rt = str(r.get('route_type', '')).strip()
+        if rt in gtfs_type_map:
+            route_type_lookup[str(r['route_id']).strip()] = gtfs_type_map[rt]
+
+    def classify_with_gtfs(route_id):
+        """Use GTFS route_type if available, fall back to city-specific rules."""
+        rid = str(route_id).strip()
+        if rid in route_type_lookup:
+            return route_type_lookup[rid]
+        return classify_vehicle(rid)
+
     # Map trip_id -> route_id
     trip_route = trips_filtered[['trip_id', 'route_id']].drop_duplicates()
 
@@ -197,8 +215,8 @@ def main():
     ]
     print(f"Stop times in {TIME_START}-{TIME_END}: {len(stop_times_filtered)}")
 
-    # --- Classify vehicles ---
-    stop_times_filtered['vehicle'] = stop_times_filtered['route_id'].apply(classify_vehicle)
+    # --- Classify vehicles (GTFS route_type preferred, fallback to city rules) ---
+    stop_times_filtered['vehicle'] = stop_times_filtered['route_id'].apply(classify_with_gtfs)
 
     # --- Aggregate per stop ---
     vehicle_counts = (

@@ -118,7 +118,7 @@ CITIES = {
         },
         'crs_metric': 'EPSG:2180',
         'gtfs': {
-            'ztm': 'https://mkuran.pl/gtfs/poznan.zip',
+            'ztm': 'https://www.ztm.poznan.pl/pl/dla-deweloperow/getGTFSFile',
         },
         'gtfs_merge': 'single',
         'vehicle_classify': _poznan_vehicle,
@@ -133,9 +133,11 @@ CITIES = {
         },
         'crs_metric': 'EPSG:2180',
         'gtfs': {
-            'ztm': 'https://mkuran.pl/gtfs/krakow.zip',
+            # A=autobus, T=tram, M=mobilis (outsourced bus operator)
+            'bus': 'https://gtfs.ztp.krakow.pl/GTFS_KRK_A.zip',
+            'tram': 'https://gtfs.ztp.krakow.pl/GTFS_KRK_T.zip',
         },
-        'gtfs_merge': 'single',
+        'gtfs_merge': 'krakow',  # merge bus + tram feeds
         'vehicle_classify': _krakow_vehicle,
         'has_frequencies': False,
     },
@@ -148,7 +150,7 @@ CITIES = {
         },
         'crs_metric': 'EPSG:2180',
         'gtfs': {
-            'ztm': 'https://mkuran.pl/gtfs/triCity.zip',
+            'ztm': 'https://ckan.multimediagdansk.pl/dataset/c24aa637-3619-4dc2-a171-a23eec8f2172/resource/30e783e4-2bec-4a7d-bb22-ee3e3b26ca96/download/gtfsgoogle.zip',
         },
         'gtfs_merge': 'single',
         'vehicle_classify': _gdansk_vehicle,

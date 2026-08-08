@@ -104,21 +104,54 @@ def load_calendar_dates(gtfs_dir: Path, service_ids: set) -> pd.DataFrame:
 
 
 def ensure_calendar_dates(gtfs_dir: Path):
-    """If only calendar.txt exists, generate calendar_dates.txt from it."""
-    cal_dates = gtfs_dir / 'calendar_dates.txt'
+    """Ensure calendar_dates.txt has full service data.
+
+    Many GTFS feeds use calendar.txt for the weekly pattern and
+    calendar_dates.txt only for exceptions. We need to expand
+    calendar.txt and merge with exceptions so that downstream
+    scripts can filter by date using calendar_dates.txt alone.
+    """
+    cal_dates_path = gtfs_dir / 'calendar_dates.txt'
     cal_file = gtfs_dir / 'calendar.txt'
 
-    if cal_dates.exists():
-        return  # already have it
-
     if not cal_file.exists():
+        if cal_dates_path.exists():
+            return  # only calendar_dates.txt — fine as-is
         raise FileNotFoundError(f'No calendar file in {gtfs_dir}')
 
+    # Expand calendar.txt weekly patterns into per-date rows
     logger.info('Expanding calendar.txt -> calendar_dates.txt')
-    cal = pd.read_csv(cal_file, dtype=str)
+    cal = pd.read_csv(cal_file, dtype=str, encoding='utf-8-sig')
     expanded = expand_calendar_txt(cal)
-    expanded.to_csv(cal_dates, index=False)
-    logger.info(f'  Generated {len(expanded)} calendar_dates entries')
+    logger.info(f'  Expanded {len(expanded)} date entries from calendar.txt')
+
+    if cal_dates_path.exists():
+        # Merge with existing exceptions
+        existing = pd.read_csv(cal_dates_path, dtype=str, encoding='utf-8-sig')
+        existing['date'] = existing['date'].astype(int)
+        existing['exception_type'] = existing['exception_type'].astype(int)
+
+        # exception_type=2 means service REMOVED on that date
+        removals = existing[existing['exception_type'] == 2]
+        additions = existing[existing['exception_type'] == 1]
+
+        # Remove dates that are explicitly cancelled
+        if not removals.empty:
+            remove_keys = set(zip(removals['service_id'], removals['date']))
+            mask = expanded.apply(
+                lambda r: (r['service_id'], r['date']) not in remove_keys, axis=1
+            )
+            before = len(expanded)
+            expanded = expanded[mask]
+            logger.info(f'  Removed {before - len(expanded)} cancelled service dates')
+
+        # Add explicit additions that aren't already in expanded
+        if not additions.empty:
+            expanded = pd.concat([expanded, additions], ignore_index=True)
+            expanded = expanded.drop_duplicates(subset=['service_id', 'date'], keep='first')
+
+    expanded.to_csv(cal_dates_path, index=False)
+    logger.info(f'  Final calendar_dates.txt: {len(expanded)} entries')
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +342,81 @@ def download_single(city: dict, combined_dir: Path):
 # Download: Warsaw multi-feed merge
 # ---------------------------------------------------------------------------
 
+def download_krakow(city: dict, combined_dir: Path):
+    """Download and merge Kraków bus + tram GTFS feeds."""
+    raw_dir = city['data_dir'] / '_raw'
+
+    bus_dir = download_and_extract(city['gtfs']['bus'], 'bus', raw_dir)
+    tram_dir = download_and_extract(city['gtfs']['tram'], 'tram', raw_dir)
+
+    # Use bus feed as base
+    combined_dir.mkdir(parents=True)
+    for f in bus_dir.glob('*.txt'):
+        shutil.copy(f, combined_dir / f.name)
+    logger.info(f'Bus base copied to {combined_dir}')
+
+    # Merge tram data: prefix IDs to avoid collisions
+    tram_prefix = 'tram_'
+    file_map = {
+        'trips': 'trips.txt', 'shapes': 'shapes.txt',
+        'stop_times': 'stop_times.txt', 'stops': 'stops.txt',
+    }
+    for key, filename in file_map.items():
+        target = combined_dir / filename
+        tram_file = tram_dir / filename
+        if not target.exists() or not tram_file.exists():
+            continue
+        base_df = pd.read_csv(target, dtype=str)
+        tram_df = pd.read_csv(tram_file, dtype=str)
+
+        # Prefix tram IDs to avoid collisions with bus IDs
+        if 'trip_id' in tram_df.columns:
+            tram_df['trip_id'] = tram_prefix + tram_df['trip_id'].astype(str)
+        if 'stop_id' in tram_df.columns:
+            tram_df['stop_id'] = tram_prefix + tram_df['stop_id'].astype(str)
+        if 'shape_id' in tram_df.columns:
+            tram_df['shape_id'] = tram_prefix + tram_df['shape_id'].astype(str)
+        if 'service_id' in tram_df.columns:
+            tram_df['service_id'] = tram_prefix + tram_df['service_id'].astype(str)
+
+        common = [c for c in base_df.columns if c in tram_df.columns]
+        merged = pd.concat([base_df, tram_df[common]], ignore_index=True)
+        merged.to_csv(target, index=False)
+        logger.info(f'  {filename}: +{len(tram_df)} tram rows -> {len(merged)} total')
+
+    # Merge routes separately (prefix route_id for trams too)
+    routes_file = combined_dir / 'routes.txt'
+    tram_routes_file = tram_dir / 'routes.txt'
+    if routes_file.exists() and tram_routes_file.exists():
+        base_routes = pd.read_csv(routes_file, dtype=str)
+        tram_routes = pd.read_csv(tram_routes_file, dtype=str)
+        common = [c for c in base_routes.columns if c in tram_routes.columns]
+        merged_routes = pd.concat([base_routes, tram_routes[common]], ignore_index=True)
+        merged_routes.to_csv(routes_file, index=False)
+        logger.info(f'  routes.txt: +{len(tram_routes)} tram routes -> {len(merged_routes)} total')
+
+    # Merge calendar
+    for cal_name in ['calendar_dates.txt', 'calendar.txt']:
+        target = combined_dir / cal_name
+        tram_cal = tram_dir / cal_name
+        if target.exists() and tram_cal.exists():
+            base_df = pd.read_csv(target, dtype=str)
+            tram_df = pd.read_csv(tram_cal, dtype=str)
+            if 'service_id' in tram_df.columns:
+                tram_df['service_id'] = tram_prefix + tram_df['service_id'].astype(str)
+            common = [c for c in base_df.columns if c in tram_df.columns]
+            merged = pd.concat([base_df, tram_df[common]], ignore_index=True)
+            merged.to_csv(target, index=False)
+            logger.info(f'  {cal_name}: merged')
+
+    # Ensure calendar_dates.txt exists
+    ensure_calendar_dates(combined_dir)
+
+    # Clean up
+    shutil.rmtree(raw_dir)
+    logger.info('Cleaned up raw downloads')
+
+
 def download_warsaw(city: dict, combined_dir: Path):
     """Download and merge ZTM + KM + WKD for Warsaw."""
     raw_dir = city['data_dir'] / '_raw'
@@ -375,6 +483,8 @@ def main():
 
     if city['gtfs_merge'] == 'warsaw':
         download_warsaw(city, combined_dir)
+    elif city['gtfs_merge'] == 'krakow':
+        download_krakow(city, combined_dir)
     else:
         download_single(city, combined_dir)
 
