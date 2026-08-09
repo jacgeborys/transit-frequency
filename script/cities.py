@@ -108,6 +108,7 @@ CITIES = {
         'vehicle_classify': _warsaw_vehicle,
         'has_frequencies': True,  # metro uses frequencies.txt
         'render_extent': (623233.8, 651733.8, 477610.7, 500410.7),
+        'geofabrik': 'https://download.geofabrik.de/europe/poland/mazowieckie-latest.osm.pbf',
     },
 
     'poznan': {
@@ -123,6 +124,7 @@ CITIES = {
         'gtfs_merge': 'single',
         'vehicle_classify': _poznan_vehicle,
         'has_frequencies': False,
+        'geofabrik': 'https://download.geofabrik.de/europe/poland/wielkopolskie-latest.osm.pbf',
     },
 
     'krakow': {
@@ -140,6 +142,7 @@ CITIES = {
         'gtfs_merge': 'krakow',  # merge bus + tram feeds
         'vehicle_classify': _krakow_vehicle,
         'has_frequencies': False,
+        'geofabrik': 'https://download.geofabrik.de/europe/poland/malopolskie-latest.osm.pbf',
     },
 
     'gdansk': {
@@ -155,6 +158,7 @@ CITIES = {
         'gtfs_merge': 'single',
         'vehicle_classify': _gdansk_vehicle,
         'has_frequencies': False,
+        'geofabrik': 'https://download.geofabrik.de/europe/poland/pomorskie-latest.osm.pbf',
     },
 
     'berlin': {
@@ -170,6 +174,7 @@ CITIES = {
         'gtfs_merge': 'single',
         'vehicle_classify': _berlin_vehicle,
         'has_frequencies': True,
+        'geofabrik': 'https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf',
     },
 }
 

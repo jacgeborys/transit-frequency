@@ -1,26 +1,34 @@
 """
 Fetch Walking Network for a city.
-Downloads and caches the full OSM walking network for the city's bounding box.
-Uses OSMnx -- no API keys needed. Large areas are split into tiles and merged.
+Downloads the OSM walking network via direct Overpass queries (tiled),
+then builds a NetworkX graph with OSMnx.
 
 Usage:
     python 02_fetch_walking_network.py --city warsaw
-    python 02_fetch_walking_network.py --city poznan
+    python 02_fetch_walking_network.py --city gdansk
 """
 import argparse
+import json
 import warnings
 import osmnx as ox
 import networkx as nx
 import pickle
-import time as time_mod
+import time
+import requests
 from pathlib import Path
 from datetime import datetime
 from shapely.geometry import box
 
 from cities import get_city, add_city_argument
 
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+HEADERS = {'User-Agent': 'QGIS-walking-network/1.0', 'Accept': '*/*'}
 
-def create_tiles(bbox, n=3):
+WALK_QUERY = """[out:json][timeout:180];
+(way["highway"]["area"!~"yes"]["highway"!~"abandoned|bus_guideway|construction|cycleway|motor|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"]({bbox});>;);out;"""
+
+
+def create_tiles(bbox, n=4):
     """Split bbox into n x n tiles."""
     lat_step = (bbox['north'] - bbox['south']) / n
     lon_step = (bbox['east'] - bbox['west']) / n
@@ -32,30 +40,93 @@ def create_tiles(bbox, n=3):
                 'north': bbox['south'] + (i + 1) * lat_step,
                 'west': bbox['west'] + j * lon_step,
                 'east': bbox['west'] + (j + 1) * lon_step,
+                'id': f"{i}_{j}",
             })
     return tiles
 
 
-def fetch_tile(tile, attempt_waits=(0, 60, 120)):
-    """Fetch a single tile with retries and increasing waits."""
-    polygon = box(tile['west'], tile['south'], tile['east'], tile['north'])
-    for i, wait in enumerate(attempt_waits):
-        if wait > 0:
-            print(f"retry {i} (wait {wait}s)...", end=" ", flush=True)
-            time_mod.sleep(wait)
+def fetch_tile_json(tile, cache_dir):
+    """Fetch walking network JSON for a single tile, with caching and retries."""
+    cache_file = cache_dir / f"tile_{tile['id']}.json"
+    if cache_file.exists():
+        return json.loads(cache_file.read_text(encoding='utf-8'))
+
+    bbox_str = f"{tile['south']},{tile['west']},{tile['north']},{tile['east']}"
+    query = WALK_QUERY.format(bbox=bbox_str)
+
+    for attempt in range(3):
         try:
-            G = ox.graph_from_polygon(
-                polygon,
-                network_type='walk',
-                simplify=True,
-                retain_all=False,
-            )
-            return G
+            if attempt > 0:
+                wait = 60 * attempt
+                print(f"retry {attempt} (wait {wait}s)...", end=" ", flush=True)
+                time.sleep(wait)
+            resp = requests.post(OVERPASS_URL, data={'data': query},
+                                 headers=HEADERS, timeout=300)
+            if resp.status_code == 429:
+                wait = 60 * (2 ** attempt)
+                print(f"rate-limited, wait {wait}s...", end=" ", flush=True)
+                time.sleep(wait)
+                continue
+            if resp.status_code != 200:
+                print(f"HTTP {resp.status_code}...", end=" ", flush=True)
+                time.sleep(30)
+                continue
+            data = resp.json()
+            cache_file.write_text(json.dumps(data), encoding='utf-8')
+            return data
+        except requests.exceptions.Timeout:
+            print(f"timeout...", end=" ", flush=True)
         except Exception as e:
-            err = str(e)[:80]
-            if i == len(attempt_waits) - 1:
-                print(f"FAILED: {err}")
+            print(f"error: {str(e)[:60]}...", end=" ", flush=True)
     return None
+
+
+def build_graph_from_jsons(jsons):
+    """Build a walking NetworkX graph from Overpass JSON responses."""
+    nodes = {}
+    ways = []
+
+    for data in jsons:
+        for elem in data.get('elements', []):
+            if elem['type'] == 'node':
+                nodes[elem['id']] = (elem['lon'], elem['lat'])
+            elif elem['type'] == 'way':
+                ways.append(elem)
+
+    G = nx.MultiDiGraph()
+    for nid, (lon, lat) in nodes.items():
+        G.add_node(nid, x=lon, y=lat)
+
+    for way in ways:
+        tags = way.get('tags', {})
+        way_nodes = way.get('nodes', [])
+        highway = tags.get('highway', '')
+
+        for i in range(len(way_nodes) - 1):
+            u, v = way_nodes[i], way_nodes[i + 1]
+            if u not in nodes or v not in nodes:
+                continue
+            lon_u, lat_u = nodes[u]
+            lon_v, lat_v = nodes[v]
+            # Haversine distance in meters
+            from math import radians, sin, cos, sqrt, atan2
+            R = 6371000
+            dlat = radians(lat_v - lat_u)
+            dlon = radians(lon_v - lon_u)
+            a = sin(dlat/2)**2 + cos(radians(lat_u)) * cos(radians(lat_v)) * sin(dlon/2)**2
+            length = R * 2 * atan2(sqrt(a), sqrt(1-a))
+
+            edge_data = {'length': length, 'highway': highway, 'osmid': way['id']}
+            G.add_edge(u, v, **edge_data)
+            # Walking is bidirectional
+            oneway = tags.get('oneway', 'no')
+            if oneway not in ('yes', 'true', '1', '-1'):
+                G.add_edge(v, u, **edge_data)
+
+    # Set CRS attribute for OSMnx compatibility
+    G.graph['crs'] = 'EPSG:4326'
+
+    return G
 
 
 def main():
@@ -83,51 +154,37 @@ def main():
     bbox = city['bbox']
     print(f"Bbox: {bbox['south']:.4f}-{bbox['north']:.4f} N, {bbox['west']:.4f}-{bbox['east']:.4f} E")
 
-    warnings.filterwarnings('ignore', category=FutureWarning, module='osmnx')
-    warnings.filterwarnings('ignore', category=UserWarning, module='osmnx')
-    ox.settings.log_console = False
-    ox.settings.http_user_agent = "QGIS-walking-network/1.0"
-    ox.settings.requests_timeout = 300
-    ox.settings.overpass_rate_limit = False
-
-    # Patch OSMnx's session to use our User-Agent
-    import requests as req_lib
-    _orig_post = req_lib.Session.post
-    def _patched_post(self, url, **kwargs):
-        headers = kwargs.get('headers', {}) or {}
-        headers.setdefault('User-Agent', 'QGIS-walking-network/1.0')
-        kwargs['headers'] = headers
-        return _orig_post(self, url, **kwargs)
-    req_lib.Session.post = _patched_post
+    cache_dir = network_dir / "tile_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     tiles = create_tiles(bbox, n=4)
     print(f"Downloading walking network in {len(tiles)} tiles...\n")
 
     start_time = datetime.now()
-    graphs = []
+    jsons = []
 
     for i, tile in enumerate(tiles, 1):
-        print(f"  [{i}/{len(tiles)}]", end=" ", flush=True)
-
-        G = fetch_tile(tile)
-        if G is not None:
-            print(f"{len(G.nodes):,} nodes, {len(G.edges):,} edges")
-            graphs.append(G)
+        print(f"  [{i}/{len(tiles)}] {tile['id']}...", end=" ", flush=True)
+        data = fetch_tile_json(tile, cache_dir)
+        if data is not None:
+            n_elems = len(data.get('elements', []))
+            print(f"{n_elems:,} elements")
+            jsons.append(data)
+        else:
+            print("FAILED")
 
         if i < len(tiles):
-            time_mod.sleep(15)
+            time.sleep(10)
 
-    # Restore original
-    req_lib.Session.post = _orig_post
-
-    if not graphs:
+    if not jsons:
         print("No tiles downloaded!")
         return
 
-    print(f"\nMerging {len(graphs)} graphs...", end=" ", flush=True)
-    G = graphs[0]
-    for g in graphs[1:]:
-        G = nx.compose(G, g)
+    print(f"\nBuilding graph from {len(jsons)} tiles...", end=" ", flush=True)
+    G = build_graph_from_jsons(jsons)
+    # Remove isolated nodes
+    isolates = list(nx.isolates(G))
+    G.remove_nodes_from(isolates)
     print(f"{len(G.nodes):,} nodes, {len(G.edges):,} edges")
 
     elapsed = (datetime.now() - start_time).total_seconds()
