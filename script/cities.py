@@ -146,10 +146,10 @@ CITIES = {
     },
 
     'gdansk': {
-        'name': 'Trójmiasto',
+        'name': 'Gdańsk',
         'bbox': {
-            'south': 54.28, 'west': 18.45,
-            'north': 54.52, 'east': 18.82,
+            'south': 54.30, 'west': 18.52,
+            'north': 54.43, 'east': 18.80,
         },
         'crs_metric': 'EPSG:2180',
         'gtfs': {
