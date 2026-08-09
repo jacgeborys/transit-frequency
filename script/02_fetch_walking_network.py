@@ -45,7 +45,7 @@ def main():
     print(f"Bbox: {bbox['south']:.4f}-{bbox['north']:.4f} N, {bbox['west']:.4f}-{bbox['east']:.4f} E")
     print("Downloading walking network from OpenStreetMap...\n")
 
-    ox.settings.log_console = True
+    ox.settings.log_console = False
     ox.settings.max_query_area_size = MAX_QUERY_AREA
     ox.settings.requests_pause = 2
 
