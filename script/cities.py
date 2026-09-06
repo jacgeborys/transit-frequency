@@ -53,11 +53,14 @@ def _poznan_vehicle(rid):
 
 def _krakow_vehicle(rid):
     rid = str(rid).strip()
+    # Kraków GTFS uses "route_NNN" IDs — strip prefix for classification
+    if rid.lower().startswith('route_'):
+        rid = rid[6:]
     # Kraków trams: 1-99
     if rid.isdigit() and int(rid) < 100:
         return 'tram'
     # SKA (Szybka Kolej Aglomeracyjna)
-    if rid.upper().startswith(('S', 'R', 'SKA')):
+    if rid.upper().startswith(('S', 'SKA')):
         return 'train'
     return 'bus'
 

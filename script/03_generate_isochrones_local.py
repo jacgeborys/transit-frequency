@@ -1,6 +1,6 @@
 """
 Generate Walking Isochrones for Transit Stops - Local Version
-Uses OSMnx walking network + ego_graph to build 5-minute walking polygons.
+Uses OSMnx walking network + scipy sparse graph to build 5-minute walking polygons.
 No API keys or rate limits.
 
 Usage:
@@ -27,6 +27,8 @@ from shapely.geometry import Point, LineString
 from shapely.ops import unary_union
 from pyproj import Transformer
 from scipy.spatial import cKDTree
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra
 
 from cities import get_city, add_city_argument
 
@@ -61,54 +63,77 @@ def load_network(city: dict):
     return None
 
 
-def build_spatial_index(G, crs_metric: str):
+def convert_to_sparse(G, crs_metric: str):
     """
-    Build a KDTree for fast nearest-node lookups and pre-project coords.
-    Returns: (node_ids array, KDTree on lon/lat, dict node_id->(x_m, y_m))
+    Convert NetworkX graph to scipy sparse matrix + coordinate arrays.
+    Returns: (node_ids, KDTree, coords_metric, sparse_matrix, node_to_idx)
+    The NetworkX graph can be freed after this to save memory.
     """
-    print("Building spatial index + projecting coords...", end=' ', flush=True)
+    print("Converting graph to sparse matrix...", end=' ', flush=True)
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
-    node_ids = []
-    lonlats = []
-    node_coords_metric = {}
+    nids = list(G.nodes())
+    node_to_idx = {n: i for i, n in enumerate(nids)}
+    n_nodes = len(nids)
 
-    for n, data in G.nodes(data=True):
-        node_ids.append(n)
-        lonlats.append((data['x'], data['y']))
-        mx, my = to_metric.transform(data['x'], data['y'])
-        node_coords_metric[n] = (mx, my)
+    lons = [G.nodes[n]['x'] for n in nids]
+    lats = [G.nodes[n]['y'] for n in nids]
 
-    node_ids = np.array(node_ids)
-    lonlats = np.array(lonlats)
+    # Vectorized projection
+    mx, my = to_metric.transform(lons, lats)
+    coords_metric = np.column_stack([mx, my])
+
+    # Build sparse adjacency matrix
+    rows, cols, weights = [], [], []
+    for u, v, data in G.edges(data=True):
+        ui, vi = node_to_idx[u], node_to_idx[v]
+        length = data.get('length', 0)
+        rows.append(ui)
+        cols.append(vi)
+        weights.append(length)
+
+    sparse = csr_matrix((weights, (rows, cols)), shape=(n_nodes, n_nodes))
+
+    node_ids = np.array(nids)
+    lonlats = np.column_stack([lons, lats])
     tree = cKDTree(lonlats)
 
-    print(f"Done ({len(node_ids):,} nodes)")
-    return node_ids, tree, node_coords_metric
+    print(f"Done ({n_nodes:,} nodes, {len(rows):,} edges)")
+    return node_ids, tree, coords_metric, sparse, node_to_idx
 
 
-def find_nearest_node(tree, node_ids, lon, lat):
-    """Find nearest graph node using KDTree."""
-    _, idx = tree.query([lon, lat])
-    return node_ids[idx]
-
-
-def create_isochrone(G, point_metric, distance_m, node_coords, nearest_node):
-    """Create isochrone polygon using pre-projected coordinates."""
-    nx_m, ny_m = node_coords[nearest_node]
-    dist = ((point_metric[0] - nx_m)**2 + (point_metric[1] - ny_m)**2) ** 0.5
+def create_isochrone_sparse(source_idx, stop_metric, coords_metric, sparse, distance_m):
+    """Create isochrone polygon using scipy sparse shortest paths."""
+    # Check if stop is near any graph node
+    nx_m, ny_m = coords_metric[source_idx]
+    dist = ((stop_metric[0] - nx_m)**2 + (stop_metric[1] - ny_m)**2) ** 0.5
     if dist > 500:
         return None
 
-    subgraph = nx.ego_graph(G, nearest_node, radius=distance_m, distance='length')
-    if len(subgraph.nodes) < 3:
+    # Single-source Dijkstra with distance cutoff
+    dists = dijkstra(sparse, directed=True, indices=source_idx, limit=distance_m)
+    reachable = np.where(np.isfinite(dists))[0]
+
+    if len(reachable) < 3:
         return None
 
-    node_buffers = [Point(node_coords[n]).buffer(BUFFER_M) for n in subgraph.nodes()]
-    edge_buffers = [
-        LineString([node_coords[u], node_coords[v]]).buffer(BUFFER_M)
-        for u, v in subgraph.edges()
-    ]
+    # Build polygon from reachable nodes + edges
+    reach_coords = coords_metric[reachable]
+    node_buffers = [Point(x, y).buffer(BUFFER_M) for x, y in reach_coords]
+
+    # Find edges between reachable nodes
+    reachable_set = set(reachable)
+    edge_buffers = []
+    sub = sparse[reachable]
+    for local_i, global_i in enumerate(reachable):
+        row_start = sub.indptr[local_i]
+        row_end = sub.indptr[local_i + 1]
+        for j_pos in range(row_start, row_end):
+            global_j = sub.indices[j_pos]
+            if global_j in reachable_set:
+                edge_buffers.append(
+                    LineString([coords_metric[global_i], coords_metric[global_j]]).buffer(BUFFER_M)
+                )
 
     return unary_union(node_buffers + edge_buffers)
 
@@ -167,10 +192,16 @@ def main():
     if G is None:
         return
 
-    node_ids, tree, node_coords = build_spatial_index(G, crs_metric)
+    node_ids, tree, coords_metric, sparse, node_to_idx = convert_to_sparse(G, crs_metric)
+
+    # Free NetworkX graph to reclaim ~1.5 GB
+    del G
+    import gc; gc.collect()
+    print("  (NetworkX graph freed)\n")
+
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
-    print(f"\nGenerating isochrones...\n")
+    print(f"Generating isochrones...\n")
     start_time = datetime.now()
     results = []
     skipped = 0
@@ -185,9 +216,11 @@ def main():
             print(f"  [{seq}/{len(stops)}] {pct:.0f}% — {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
 
         sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
-        nearest_node = find_nearest_node(tree, node_ids, stop['stop_lon'], stop['stop_lat'])
+        _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
 
-        polygon_metric = create_isochrone(G, (sx, sy), DISTANCE_M, node_coords, nearest_node)
+        polygon_metric = create_isochrone_sparse(
+            nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M
+        )
 
         if polygon_metric is not None and not polygon_metric.is_empty:
             results.append({

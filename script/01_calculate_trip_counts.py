@@ -176,8 +176,15 @@ def main():
     # --- Build route_type lookup from GTFS routes.txt ---
     routes_df = pd.read_csv(data_dir / "routes.txt", dtype=str, encoding='utf-8-sig')
     # GTFS route_type: 0=tram, 1=metro/subway, 2=rail, 3=bus, 5=cable, 7=funicular, 11=trolleybus, 12=monorail
+    # Standard GTFS + extended route types (https://gtfs.org/schedule/reference/#routestxt)
     gtfs_type_map = {'0': 'tram', '1': 'metro', '2': 'train', '3': 'bus',
-                     '5': 'bus', '7': 'bus', '11': 'bus', '12': 'train'}
+                     '5': 'bus', '7': 'bus', '11': 'bus', '12': 'train',
+                     '900': 'tram', '901': 'tram', '902': 'tram',
+                     '100': 'train', '101': 'train', '102': 'train', '103': 'train',
+                     '109': 'train',
+                     '400': 'metro', '401': 'metro', '402': 'metro',
+                     '700': 'bus', '701': 'bus', '702': 'bus', '704': 'bus',
+                     '800': 'bus'}
     route_type_lookup = {}
     for _, r in routes_df.iterrows():
         rt = str(r.get('route_type', '')).strip()
