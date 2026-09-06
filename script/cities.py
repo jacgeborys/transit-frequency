@@ -141,10 +141,13 @@ CITIES = {
             # A=autobus, T=tram, M=mobilis (outsourced bus operator)
             'bus': 'https://gtfs.ztp.krakow.pl/GTFS_KRK_A.zip',
             'tram': 'https://gtfs.ztp.krakow.pl/GTFS_KRK_T.zip',
+            'polish_trains': 'https://mkuran.pl/gtfs/polish_trains.zip',
         },
-        'gtfs_merge': 'krakow',  # merge bus + tram feeds
+        'gtfs_merge': 'krakow',  # merge bus + tram + regional trains
         'vehicle_classify': _krakow_vehicle,
         'has_frequencies': False,
+        # Regional train agencies to extract from polish_trains feed
+        'train_agencies': {'KML', 'PR', 'KS'},  # Koleje Małopolskie, PolRegio, Koleje Śląskie
         'geofabrik': 'https://download.geofabrik.de/europe/poland/malopolskie-latest.osm.pbf',
     },
 

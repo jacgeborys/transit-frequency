@@ -342,12 +342,97 @@ def download_single(city: dict, combined_dir: Path):
 # Download: Warsaw multi-feed merge
 # ---------------------------------------------------------------------------
 
+def extract_regional_trains(trains_dir: Path, bbox: dict, agency_ids: set) -> dict:
+    """Extract regional train data from polish_trains feed for a given bbox.
+
+    Filters by agency and stops within the bounding box, then prefixes all IDs
+    with 'train_' to avoid collisions with other feeds.
+    """
+    PREFIX = 'train_'
+
+    agency = pd.read_csv(trains_dir / 'agency.txt', dtype=str)
+    routes = pd.read_csv(trains_dir / 'routes.txt', dtype=str)
+    trips = pd.read_csv(trains_dir / 'trips.txt', dtype=str)
+    stop_times = pd.read_csv(trains_dir / 'stop_times.txt', dtype=str)
+    stops = pd.read_csv(trains_dir / 'stops.txt', dtype=str)
+
+    # Filter routes by agency
+    regional_routes = routes[routes['agency_id'].isin(agency_ids)]
+    regional_route_ids = set(regional_routes['route_id'])
+    logger.info(f'  Regional train routes: {len(regional_route_ids)}')
+
+    # Filter stops by bbox
+    stops['stop_lat'] = stops['stop_lat'].astype(float)
+    stops['stop_lon'] = stops['stop_lon'].astype(float)
+    bbox_stops = stops[
+        (stops['stop_lat'] >= bbox['south']) & (stops['stop_lat'] <= bbox['north']) &
+        (stops['stop_lon'] >= bbox['west']) & (stops['stop_lon'] <= bbox['east'])
+    ].copy()
+    bbox_stop_ids = set(bbox_stops['stop_id'])
+    logger.info(f'  Stops in bbox: {len(bbox_stop_ids)}')
+
+    # Find trips that serve at least one stop in bbox AND belong to regional routes
+    regional_trips = trips[trips['route_id'].isin(regional_route_ids)]
+    regional_trip_ids = set(regional_trips['trip_id'])
+    bbox_stop_times = stop_times[
+        (stop_times['stop_id'].isin(bbox_stop_ids)) &
+        (stop_times['trip_id'].isin(regional_trip_ids))
+    ]
+    active_trip_ids = set(bbox_stop_times['trip_id'])
+    logger.info(f'  Trips serving bbox stops: {len(active_trip_ids)}')
+
+    # Get all stop_times for active trips (not just bbox stops — a trip may pass through)
+    train_stop_times = stop_times[stop_times['trip_id'].isin(active_trip_ids)].copy()
+    # But only keep stops within bbox (we don't want stops from other cities)
+    train_stop_times = train_stop_times[train_stop_times['stop_id'].isin(bbox_stop_ids)].copy()
+    all_stop_ids = set(train_stop_times['stop_id'])
+    train_stops = bbox_stops[bbox_stops['stop_id'].isin(all_stop_ids)].copy()
+
+    train_trips = regional_trips[regional_trips['trip_id'].isin(active_trip_ids)].copy()
+    train_service_ids = set(train_trips['service_id'])
+
+    # Shapes (if available)
+    train_shape_ids = set(train_trips['shape_id'].dropna())
+    shapes = pd.read_csv(trains_dir / 'shapes.txt', dtype=str)
+    train_shapes = shapes[shapes['shape_id'].isin(train_shape_ids)].copy()
+
+    # Calendar
+    train_cal = load_calendar_dates(trains_dir, train_service_ids)
+
+    # Routes for these trips
+    active_route_ids = set(train_trips['route_id'])
+    train_routes = regional_routes[regional_routes['route_id'].isin(active_route_ids)].copy()
+
+    # Prefix all IDs
+    train_trips['trip_id'] = PREFIX + train_trips['trip_id'].astype(str)
+    train_trips['route_id'] = PREFIX + train_trips['route_id'].astype(str)
+    train_trips['service_id'] = PREFIX + train_trips['service_id'].astype(str)
+    if 'shape_id' in train_trips.columns:
+        train_trips['shape_id'] = PREFIX + train_trips['shape_id'].astype(str)
+    train_stop_times['trip_id'] = PREFIX + train_stop_times['trip_id'].astype(str)
+    train_stop_times['stop_id'] = PREFIX + train_stop_times['stop_id'].astype(str)
+    train_stops['stop_id'] = PREFIX + train_stops['stop_id'].astype(str)
+    train_shapes['shape_id'] = PREFIX + train_shapes['shape_id'].astype(str)
+    train_cal['service_id'] = PREFIX + train_cal['service_id'].astype(str)
+    train_routes['route_id'] = PREFIX + train_routes['route_id'].astype(str)
+
+    logger.info(f'  Final: {len(train_trips)} trips, {len(train_stop_times)} stop_times, '
+                f'{len(train_stops)} stops, {len(train_routes)} routes')
+
+    return {
+        'trips': train_trips, 'shapes': train_shapes,
+        'stop_times': train_stop_times, 'stops': train_stops,
+        'calendar_dates': train_cal, 'routes': train_routes,
+    }
+
+
 def download_krakow(city: dict, combined_dir: Path):
-    """Download and merge Kraków bus + tram GTFS feeds."""
+    """Download and merge Kraków bus + tram + regional trains GTFS feeds."""
     raw_dir = city['data_dir'] / '_raw'
 
     bus_dir = download_and_extract(city['gtfs']['bus'], 'bus', raw_dir)
     tram_dir = download_and_extract(city['gtfs']['tram'], 'tram', raw_dir)
+    trains_dir = download_and_extract(city['gtfs']['polish_trains'], 'polish_trains', raw_dir)
 
     # Use bus feed as base
     combined_dir.mkdir(parents=True)
@@ -408,6 +493,21 @@ def download_krakow(city: dict, combined_dir: Path):
             merged = pd.concat([base_df, tram_df[common]], ignore_index=True)
             merged.to_csv(target, index=False)
             logger.info(f'  {cal_name}: merged')
+
+    # Merge regional trains
+    train_agencies = city.get('train_agencies')
+    if train_agencies and trains_dir:
+        logger.info('Extracting regional trains...')
+        train_data = extract_regional_trains(trains_dir, city['bbox'], train_agencies)
+        append_to_combined(combined_dir, train_data, 'trains')
+        # Also merge routes
+        routes_file = combined_dir / 'routes.txt'
+        if routes_file.exists() and 'routes' in train_data:
+            base_routes = pd.read_csv(routes_file, dtype=str)
+            common = [c for c in base_routes.columns if c in train_data['routes'].columns]
+            merged_routes = pd.concat([base_routes, train_data['routes'][common]], ignore_index=True)
+            merged_routes.to_csv(routes_file, index=False)
+            logger.info(f'  routes.txt: +{len(train_data["routes"])} train routes')
 
     # Ensure calendar_dates.txt exists
     ensure_calendar_dates(combined_dir)
