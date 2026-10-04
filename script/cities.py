@@ -9,6 +9,7 @@ Each city defines:
 - vehicle_rules: route_id -> vehicle type classification
 - osm_network_tags: Overpass transit network filter tags (optional)
 - render_extent: EPSG:2180 or metric CRS extent for render_map (optional)
+- qgis_group / qgis_layout: group and print layout in transit-frequency-map.qgz (optional)
 
 Usage:
     from cities import get_city, list_cities
@@ -112,6 +113,9 @@ CITIES = {
         'has_frequencies': True,  # metro uses frequencies.txt
         'render_extent': (623233.8, 651733.8, 477610.7, 500410.7),
         'geofabrik': 'https://download.geofabrik.de/europe/poland/mazowieckie-latest.osm.pbf',
+        # transit-frequency-map.qgz: layer-tree group under 'Tlo' + print layout
+        'qgis_group': 'osm',
+        'qgis_layout': 'how_many_rides_in_5_mins',
     },
 
     'poznan': {
@@ -128,6 +132,9 @@ CITIES = {
         'vehicle_classify': _poznan_vehicle,
         'has_frequencies': False,
         'geofabrik': 'https://download.geofabrik.de/europe/poland/wielkopolskie-latest.osm.pbf',
+        # transit-frequency-map.qgz: layer-tree group under 'Tlo' + print layout
+        'qgis_group': 'poznan',
+        'qgis_layout': 'how_many_rides_in_5_mins_poznan',
     },
 
     'krakow': {
@@ -149,6 +156,9 @@ CITIES = {
         # Regional train agencies to extract from polish_trains feed
         'train_agencies': {'KML', 'PR', 'KS'},  # Koleje Małopolskie, PolRegio, Koleje Śląskie
         'geofabrik': 'https://download.geofabrik.de/europe/poland/malopolskie-latest.osm.pbf',
+        # transit-frequency-map.qgz: layer-tree group under 'Tlo' + print layout
+        'qgis_group': 'krakow',
+        'qgis_layout': 'how_many_rides_in_5_mins_krakow',
     },
 
     'gdansk': {
@@ -165,6 +175,9 @@ CITIES = {
         'vehicle_classify': _gdansk_vehicle,
         'has_frequencies': False,
         'geofabrik': 'https://download.geofabrik.de/europe/poland/pomorskie-latest.osm.pbf',
+        # transit-frequency-map.qgz: layer-tree group under 'Tlo' + print layout
+        'qgis_group': 'gdansk',
+        'qgis_layout': 'how_many_rides_in_5_mins_gdansk',
     },
 
     'berlin': {

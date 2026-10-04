@@ -4,11 +4,20 @@ Uses OSMnx walking network + scipy sparse graph to build 5-minute walking polygo
 No API keys or rate limits.
 
 Usage:
-    python 03_generate_isochrones_local.py --city warsaw [--sample N] [data_folder]
+    python 03_generate_isochrones_local.py --city warsaw [--sample N] [--barriers] [data_folder]
     python 03_generate_isochrones_local.py --city poznan
 
     --sample N   Process only the first N stops (for testing)
+    --barriers   Off-network spread respects fences/walls (impassable) and
+                 buildings (enterable up to 10 m, never crossed).
+                 Output: isochrones_barriers.gpkg
     data_folder  Explicit path (default: most recent in _data/<city>/)
+
+Barrier mode needs <osm_dir>/buildings.gpkg and <osm_dir>/barriers.gpkg
+(fetch with D:\QGIS\osm_basemap\fetch_osm_basemap.py --only barriers).
+Network routing is identical in both modes; only the 50 m off-network
+spread around reachable streets/paths changes: instead of a plain buffer it
+is a raster cost-distance (2 m cells) that cannot pass through barriers.
 
 Reads stops_trip_count.csv (output of 01_calculate_trip_counts.py).
 Each isochrone carries route_ids from its stop so that overlapping isochrones
@@ -29,6 +38,7 @@ from pyproj import Transformer
 from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
+from scipy.ndimage import distance_transform_edt
 
 from cities import get_city, add_city_argument
 
@@ -36,6 +46,12 @@ WALKING_SPEED = 4.5   # km/h
 TIME_LIMIT = 5        # minutes
 DISTANCE_M = TIME_LIMIT * (WALKING_SPEED * 1000 / 60)  # 375 m
 BUFFER_M = 50         # buffer around nodes and edges
+
+# Barrier mode
+CELL_M = 2.0                      # raster resolution
+BUILDING_PERMEABILITY_M = 10      # how far into a building the isochrone reaches
+EXCLUDED_BUILDING_TYPES = {'roof', 'carport'}  # open structures, walkable underneath
+OPEN, BUILDING, BARRIER = 0, 1, 2
 
 
 def load_network(city: dict):
@@ -102,8 +118,8 @@ def convert_to_sparse(G, crs_metric: str):
     return node_ids, tree, coords_metric, sparse, node_to_idx
 
 
-def create_isochrone_sparse(source_idx, stop_metric, coords_metric, sparse, distance_m):
-    """Create isochrone polygon using scipy sparse shortest paths."""
+def reachable_nodes(source_idx, stop_metric, coords_metric, sparse, distance_m):
+    """Indices of network nodes within distance_m of the source, or None."""
     # Check if stop is near any graph node
     nx_m, ny_m = coords_metric[source_idx]
     dist = ((stop_metric[0] - nx_m)**2 + (stop_metric[1] - ny_m)**2) ** 0.5
@@ -116,26 +132,144 @@ def create_isochrone_sparse(source_idx, stop_metric, coords_metric, sparse, dist
 
     if len(reachable) < 3:
         return None
+    return reachable
 
-    # Build polygon from reachable nodes + edges
-    reach_coords = coords_metric[reachable]
-    node_buffers = [Point(x, y).buffer(BUFFER_M) for x, y in reach_coords]
 
-    # Find edges between reachable nodes
+def reachable_edges(reachable, sparse):
+    """(i, j) index pairs of edges with both endpoints reachable."""
     reachable_set = set(reachable)
-    edge_buffers = []
+    edges = []
     sub = sparse[reachable]
     for local_i, global_i in enumerate(reachable):
-        row_start = sub.indptr[local_i]
-        row_end = sub.indptr[local_i + 1]
-        for j_pos in range(row_start, row_end):
+        for j_pos in range(sub.indptr[local_i], sub.indptr[local_i + 1]):
             global_j = sub.indices[j_pos]
             if global_j in reachable_set:
-                edge_buffers.append(
-                    LineString([coords_metric[global_i], coords_metric[global_j]]).buffer(BUFFER_M)
-                )
+                edges.append((global_i, global_j))
+    return edges
 
+
+def create_isochrone_buffer(reachable, coords_metric, sparse):
+    """Classic isochrone: union of BUFFER_M buffers around reachable nodes + edges."""
+    reach_coords = coords_metric[reachable]
+    node_buffers = [Point(x, y).buffer(BUFFER_M) for x, y in reach_coords]
+    edge_buffers = [
+        LineString([coords_metric[i], coords_metric[j]]).buffer(BUFFER_M)
+        for i, j in reachable_edges(reachable, sparse)
+    ]
     return unary_union(node_buffers + edge_buffers)
+
+
+class BarrierGrid:
+    """City-wide raster of OPEN / BUILDING / BARRIER cells in the metric CRS."""
+
+    def __init__(self, city: dict, crs_metric: str, coords_metric: np.ndarray):
+        from rasterio.features import rasterize
+        from rasterio.transform import from_origin
+
+        osm_dir = city['osm_dir']
+        buildings_file = osm_dir / "buildings.gpkg"
+        barriers_file = osm_dir / "barriers.gpkg"
+        for f in (buildings_file, barriers_file):
+            if not f.exists():
+                raise FileNotFoundError(
+                    f"{f} not found. Fetch it with fetch_osm_basemap.py --city {city['key']}")
+
+        margin = BUFFER_M + 50
+        self.x0 = np.floor(coords_metric[:, 0].min() - margin)
+        self.y1 = np.ceil(coords_metric[:, 1].max() + margin)
+        width = int(np.ceil((coords_metric[:, 0].max() + margin - self.x0) / CELL_M))
+        height = int(np.ceil((self.y1 - (coords_metric[:, 1].min() - margin)) / CELL_M))
+        transform = from_origin(self.x0, self.y1, CELL_M, CELL_M)
+        print(f"Barrier grid: {width:,} x {height:,} cells at {CELL_M:g} m "
+              f"({width * height / 1e6:.0f} MB)")
+
+        self.grid = np.zeros((height, width), dtype=np.uint8)
+
+        print("  Rasterizing buildings...", end=' ', flush=True)
+        bld = gpd.read_file(buildings_file)
+        if 'building' in bld.columns:
+            bld = bld[~bld['building'].isin(EXCLUDED_BUILDING_TYPES)]
+        bld = bld[bld.geometry.notna()].to_crs(crs_metric)
+        rasterize(((g, BUILDING) for g in bld.geometry), out=self.grid,
+                  transform=transform)
+        print(f"{len(bld):,} buildings")
+        del bld
+
+        print("  Rasterizing fences/walls...", end=' ', flush=True)
+        bar = gpd.read_file(barriers_file)
+        bar = bar[bar.geometry.notna()].to_crs(crs_metric)
+        # Closed fence rings come back as polygons; only their outline blocks
+        lines = [g.boundary if g.geom_type in ('Polygon', 'MultiPolygon') else g
+                 for g in bar.geometry]
+        # all_touched keeps lines 4-connected, so diagonal moves can't slip through
+        rasterize(((g, BARRIER) for g in lines), out=self.grid,
+                  transform=transform, all_touched=True)
+        print(f"{len(bar):,} barriers")
+        del bar, lines
+
+        self.costs_lookup = np.array([1.0, np.inf, np.inf])
+
+    def window(self, minx, miny, maxx, maxy):
+        """Grid slice and its affine transform for a metric bbox."""
+        from rasterio.transform import from_origin
+        h, w = self.grid.shape
+        c0 = max(int((minx - self.x0) // CELL_M), 0)
+        c1 = min(int((maxx - self.x0) // CELL_M) + 1, w)
+        r0 = max(int((self.y1 - maxy) // CELL_M), 0)
+        r1 = min(int((self.y1 - miny) // CELL_M) + 1, h)
+        transform = from_origin(self.x0 + c0 * CELL_M, self.y1 - r0 * CELL_M, CELL_M, CELL_M)
+        return self.grid[r0:r1, c0:c1], transform
+
+
+def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
+    """
+    Barrier-aware isochrone: spread BUFFER_M off the reachable network, but
+    fences/walls and buildings block the spread. Buildings are then filled
+    in up to BUILDING_PERMEABILITY_M from the reached area (accessible but
+    not passable).
+    """
+    from rasterio.features import rasterize, shapes
+    from shapely.geometry import shape
+    from skimage.graph import MCP_Geometric
+
+    reach_coords = coords_metric[reachable]
+    pad = BUFFER_M + 2 * CELL_M
+    minx, miny = reach_coords.min(axis=0) - pad
+    maxx, maxy = reach_coords.max(axis=0) + pad
+    win, transform = grid.window(minx, miny, maxx, maxy)
+    if win.size == 0:
+        return None
+
+    # Seed cells: the reachable network itself (passable even where it
+    # runs through a building passage or a gate in a fence)
+    lines = [LineString([coords_metric[i], coords_metric[j]])
+             for i, j in reachable_edges(reachable, sparse)]
+    lines += [Point(x, y) for x, y in reach_coords]
+    seeds = rasterize(lines, out_shape=win.shape, transform=transform,
+                      all_touched=True, dtype=np.uint8).astype(bool)
+    if not seeds.any():
+        return None
+
+    costs = grid.costs_lookup[win]
+    costs[seeds] = 1.0
+    max_cells = BUFFER_M / CELL_M
+    cum, _ = MCP_Geometric(costs).find_costs(np.argwhere(seeds),
+                                             max_cumulative_cost=max_cells)
+    reached = cum <= max_cells
+
+    # Buildings: accessible from the reached area, up to N metres deep
+    building = win == BUILDING
+    if building.any():
+        depth = distance_transform_edt(~reached) * CELL_M
+        reached |= building & (depth <= BUILDING_PERMEABILITY_M)
+
+    polys = [shape(geom) for geom, val in
+             shapes(reached.astype(np.uint8), mask=reached, transform=transform)
+             if val == 1]
+    if not polys:
+        return None
+    # Remove raster staircase while keeping 2 m features
+    return unary_union(polys).simplify(CELL_M * 0.5, preserve_topology=True)
 
 
 def find_latest_data_dir(city: dict) -> Path:
@@ -158,6 +292,8 @@ def main():
     parser = argparse.ArgumentParser(description='Generate walking isochrones')
     add_city_argument(parser)
     parser.add_argument('--sample', type=int, default=None, help='Process only N stops (testing)')
+    parser.add_argument('--barriers', action='store_true',
+                        help='Block off-network spread with fences/walls and buildings')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
 
@@ -166,7 +302,8 @@ def main():
 
     data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
     input_file = data_dir / "stops_trip_count.csv"
-    output_file = data_dir / ("isochrones_sample.gpkg" if args.sample else "isochrones.gpkg")
+    suffix = ("_barriers" if args.barriers else "") + ("_sample" if args.sample else "")
+    output_file = data_dir / f"isochrones{suffix}.gpkg"
 
     print("=" * 60)
     print(f"Isochrone Generator — {city['name']}")
@@ -174,7 +311,8 @@ def main():
     print(f"Input:   {input_file}")
     print(f"Output:  {output_file}")
     print(f"CRS:     {crs_metric}")
-    print(f"Walking: {TIME_LIMIT} min / {DISTANCE_M:.0f} m at {WALKING_SPEED} km/h\n")
+    print(f"Walking: {TIME_LIMIT} min / {DISTANCE_M:.0f} m at {WALKING_SPEED} km/h")
+    print(f"Mode:    {'fences/walls + buildings as barriers' if args.barriers else f'{BUFFER_M} m buffer'}\n")
 
     if not input_file.exists():
         print(f"Input not found: {input_file}")
@@ -199,6 +337,8 @@ def main():
     import gc; gc.collect()
     print("  (NetworkX graph freed)\n")
 
+    grid = BarrierGrid(city, crs_metric, coords_metric) if args.barriers else None
+
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
     print(f"Generating isochrones...\n")
@@ -218,9 +358,13 @@ def main():
         sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
         _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
 
-        polygon_metric = create_isochrone_sparse(
-            nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M
-        )
+        reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
+        if reachable is None:
+            polygon_metric = None
+        elif grid is not None:
+            polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
+        else:
+            polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
 
         if polygon_metric is not None and not polygon_metric.is_empty:
             results.append({

@@ -13,6 +13,7 @@ nearby stops that all fall within walking distance.
 Usage:
     python 04_create_coverage_map.py --city warsaw [data_folder]
     python 04_create_coverage_map.py --city poznan
+    python 04_create_coverage_map.py --city warsaw --barriers   # isochrones_barriers -> coverage_map_barriers
 """
 import argparse
 import geopandas as gpd
@@ -189,13 +190,13 @@ def create_coverage_map(isochrones_gdf, crs_metric: str):
     return dissolved
 
 
-def find_latest_data_dir(city: dict) -> Path:
+def find_latest_data_dir(city: dict, suffix: str = "") -> Path:
     """Find the most recent data folder with isochrones."""
     base = city['data_dir']
     if not base.exists():
         raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
     data_dirs = sorted(
-        [d for d in base.iterdir() if d.is_dir() and (d / 'isochrones.gpkg').exists()],
+        [d for d in base.iterdir() if d.is_dir() and (d / f'isochrones{suffix}.gpkg').exists()],
         key=lambda x: x.name, reverse=True
     )
     if not data_dirs:
@@ -208,15 +209,18 @@ def find_latest_data_dir(city: dict) -> Path:
 def main():
     parser = argparse.ArgumentParser(description='Create coverage map')
     add_city_argument(parser)
+    parser.add_argument('--barriers', action='store_true',
+                        help='Use barrier-aware isochrones (isochrones_barriers.gpkg)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
 
     city = get_city(args.city)
     crs_metric = city['crs_metric']
+    suffix = "_barriers" if args.barriers else ""
 
-    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
-    input_file = data_dir / "isochrones.gpkg"
-    output_file = data_dir / "coverage_map.gpkg"
+    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city, suffix)
+    input_file = data_dir / f"isochrones{suffix}.gpkg"
+    output_file = data_dir / f"coverage_map{suffix}.gpkg"
 
     print("=" * 60)
     print(f"Transit Coverage Map — {city['name']}")
