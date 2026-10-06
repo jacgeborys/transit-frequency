@@ -59,6 +59,7 @@ OPEN, BUILDING, BARRIER = 0, 1, 2
 EIGHT = np.ones((3, 3), dtype=bool)
 
 CHECKPOINT_EVERY = 250            # stops per checkpoint chunk (resume after a crash)
+DEFAULT_WORKERS = 3               # RAM-friendly: workers memory-map the shared arrays
 
 
 def load_network(city: dict):
@@ -275,6 +276,13 @@ class BarrierGrid:
 
         self.costs_lookup = np.array([1.0, np.inf, np.inf])
 
+    @classmethod
+    def from_array(cls, grid, x0, y1):
+        self = cls.__new__(cls)
+        self.grid, self.x0, self.y1 = grid, x0, y1
+        self.costs_lookup = np.array([1.0, np.inf, np.inf])
+        return self
+
     def window(self, minx, miny, maxx, maxy):
         """Grid slice and its affine transform for a metric bbox."""
         from rasterio.transform import from_origin
@@ -362,6 +370,103 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
     return unary_union(polys).simplify(CELL_M * 0.5, preserve_topology=True)
 
 
+def compute_stop(nn_idx, sx, sy, ctx):
+    """Isochrone(s) for one stop -> (public polygon, residents polygon or None)."""
+    coords, grid, gate_net = ctx['coords'], ctx['grid'], ctx['gate_net']
+    if gate_net is not None:
+        reach = reachable_two_layer(nn_idx, (sx, sy), coords, gate_net, DISTANCE_M)
+        if reach is None:
+            return None, None
+        pub, res = reach
+        poly = create_isochrone_barriers(pub, coords, gate_net['public'], grid)
+        poly_res = poly if len(res) == 0 else create_isochrone_barriers(
+            np.concatenate([pub, res]), coords, gate_net['full'], grid)
+        return poly, poly_res
+    reachable = reachable_nodes(nn_idx, (sx, sy), coords, ctx['sparse'], DISTANCE_M)
+    if reachable is None:
+        return None, None
+    if grid is not None:
+        return create_isochrone_barriers(reachable, coords, ctx['sparse'], grid), None
+    return create_isochrone_buffer(reachable, coords, ctx['sparse']), None
+
+
+def stop_record(stop, poly, poly_res):
+    return {
+        'stop_id': stop['stop_id'],
+        'stop_name': stop.get('stop_name', ''),
+        'trip_count': int(stop.get('trip_count', 0)),
+        'unique_routes': int(stop.get('unique_routes', 0)),
+        'route_ids': stop.get('route_ids', ''),
+        'route_trip_counts': stop.get('route_trip_counts', ''),
+        'bus': int(stop.get('bus', 0)),
+        'tram': int(stop.get('tram', 0)),
+        'train': int(stop.get('train', 0)),
+        'metro': int(stop.get('metro', 0)),
+        'time_minutes': TIME_LIMIT,
+        'distance_m': DISTANCE_M,
+        'geometry': poly,
+        'geometry_res': poly_res,
+    }
+
+
+_CTX = None  # per-process context: coords, matrices, grid
+
+
+def process_chunk(task):
+    """task = (chunk_start, [(stop_dict, nn_idx, sx, sy), ...]) -> (chunk_start, results, skipped)."""
+    chunk_start, records = task
+    results, skipped = [], 0
+    for stop, nn_idx, sx, sy in records:
+        poly, poly_res = compute_stop(nn_idx, sx, sy, _CTX)
+        if poly is not None and not poly.is_empty:
+            results.append(stop_record(stop, poly, poly_res))
+        else:
+            skipped += 1
+    return chunk_start, results, skipped
+
+
+def save_shared(shared_dir, ctx):
+    """Dump arrays for worker processes (they memory-map them instead of copying)."""
+    shared_dir.mkdir(exist_ok=True)
+    meta = {'mats': {}, 'grid': None, 'gates': ctx['gate_net'] is not None}
+    np.save(shared_dir / 'coords.npy', np.ascontiguousarray(ctx['coords']))
+    mats = ({'sparse': ctx['sparse']} if ctx['gate_net'] is None else
+            {k: ctx['gate_net'][k] for k in ('public', 'full', 'two_layer')})
+    for name, m in mats.items():
+        m = m.tocsr()
+        m.sort_indices()
+        np.save(shared_dir / f'{name}_data.npy', m.data.astype(np.float64))
+        np.save(shared_dir / f'{name}_indices.npy', m.indices.astype(np.int32))
+        np.save(shared_dir / f'{name}_indptr.npy', m.indptr.astype(np.int32))
+        meta['mats'][name] = m.shape
+    if ctx['gate_net'] is not None:
+        np.save(shared_dir / 'private_node.npy', ctx['gate_net']['private_node'])
+    if ctx['grid'] is not None:
+        np.save(shared_dir / 'grid.npy', ctx['grid'].grid)
+        meta['grid'] = (ctx['grid'].x0, ctx['grid'].y1)
+    with open(shared_dir / 'meta.pkl', 'wb') as f:
+        pickle.dump(meta, f)
+
+
+def _init_worker(shared_dir):
+    """Worker initializer: memory-map the shared arrays (copy-on-write, shared pages)."""
+    global _CTX
+    d = Path(shared_dir)
+    with open(d / 'meta.pkl', 'rb') as f:
+        meta = pickle.load(f)
+    load = lambda name: np.load(d / f'{name}.npy', mmap_mode='c')
+    mats = {name: csr_matrix((load(f'{name}_data'), load(f'{name}_indices'),
+                              load(f'{name}_indptr')), shape=shape)
+            for name, shape in meta['mats'].items()}
+    grid = BarrierGrid.from_array(load('grid'), *meta['grid']) if meta['grid'] else None
+    gate_net = None
+    if meta['gates']:
+        gate_net = {k: mats[k] for k in ('public', 'full', 'two_layer')}
+        gate_net['private_node'] = load('private_node')
+    _CTX = {'coords': load('coords'), 'sparse': mats.get('sparse'),
+            'gate_net': gate_net, 'grid': grid}
+
+
 def find_latest_data_dir(city: dict) -> Path:
     """Find the most recent data folder for a city."""
     base = city['data_dir']
@@ -387,6 +492,8 @@ def main():
     parser.add_argument('--gates', action='store_true',
                         help='With --barriers: closed gates / private ways are residents-only '
                              '(outputs isochrones_gates + isochrones_gates_residents)')
+    parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
+                        help=f'Parallel worker processes (default {DEFAULT_WORKERS}; 1 = serial)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
 
@@ -461,79 +568,63 @@ def main():
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
-    print(f"Generating isochrones (checkpoints in {partial_dir.name})...\n")
-    start_time = datetime.now()
-    results = []
-    skipped = 0
-    computed = 0
+    # Snap every stop to its network node up front (vectorised)
+    lons, lats = stops['stop_lon'].to_numpy(), stops['stop_lat'].to_numpy()
+    sxs, sys_ = to_metric.transform(lons, lats)
+    if gate_net is not None:
+        _, k = gate_net['public_tree'].query(np.column_stack([lons, lats]))
+        nns = gate_net['public_idx'][k]  # stops are on public streets
+    else:
+        _, nns = tree.query(np.column_stack([lons, lats]))
+    stop_dicts = stops.to_dict('records')
 
+    chunks = {}
     for chunk_start in range(0, len(stops), CHECKPOINT_EVERY):
         chunk_file = partial_dir / f"chunk_{chunk_start:06d}.pkl"
         if chunk_file.exists():
             with open(chunk_file, 'rb') as f:
-                chunk_results, chunk_skipped = pickle.load(f)
-            results.extend(chunk_results)
-            skipped += chunk_skipped
-            continue
+                chunks[chunk_start] = pickle.load(f)
+    pending = [c for c in range(0, len(stops), CHECKPOINT_EVERY) if c not in chunks]
 
-        chunk_results, chunk_skipped = [], 0
-        for _, stop in stops.iloc[chunk_start:chunk_start + CHECKPOINT_EVERY].iterrows():
-            sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
-            polygon_res = None
-            if gate_net is not None:
-                # Snap to the nearest public node (stops are on public streets)
-                _, k = gate_net['public_tree'].query([stop['stop_lon'], stop['stop_lat']])
-                reach = reachable_two_layer(gate_net['public_idx'][k], (sx, sy), coords_metric,
-                                            gate_net, DISTANCE_M)
-                if reach is None:
-                    polygon_metric = None
-                else:
-                    pub, res = reach
-                    polygon_metric = create_isochrone_barriers(pub, coords_metric,
-                                                               gate_net['public'], grid)
-                    polygon_res = polygon_metric if len(res) == 0 else create_isochrone_barriers(
-                        np.concatenate([pub, res]), coords_metric, gate_net['full'], grid)
-            else:
-                _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
-                reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
-                if reachable is None:
-                    polygon_metric = None
-                elif grid is not None:
-                    polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
-                else:
-                    polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
+    def tasks():
+        for c in pending:
+            idx = range(c, min(c + CHECKPOINT_EVERY, len(stops)))
+            yield c, [(stop_dicts[i], int(nns[i]), sxs[i], sys_[i]) for i in idx]
 
-            if polygon_metric is not None and not polygon_metric.is_empty:
-                chunk_results.append({
-                    'stop_id': stop['stop_id'],
-                    'stop_name': stop.get('stop_name', ''),
-                    'trip_count': int(stop.get('trip_count', 0)),
-                    'unique_routes': int(stop.get('unique_routes', 0)),
-                    'route_ids': stop.get('route_ids', ''),
-                    'route_trip_counts': stop.get('route_trip_counts', ''),
-                    'bus': int(stop.get('bus', 0)),
-                    'tram': int(stop.get('tram', 0)),
-                    'train': int(stop.get('train', 0)),
-                    'metro': int(stop.get('metro', 0)),
-                    'time_minutes': TIME_LIMIT,
-                    'distance_m': DISTANCE_M,
-                    'geometry': polygon_metric,
-                    'geometry_res': polygon_res,
-                })
-            else:
-                chunk_skipped += 1
+    workers = max(1, min(args.workers, len(pending)))
+    print(f"Generating isochrones: {len(pending)} chunks of {CHECKPOINT_EVERY} stops to do "
+          f"({len(chunks)} cached), {workers} worker(s); checkpoints in {partial_dir.name}\n",
+          flush=True)
+    start_time = datetime.now()
+    ctx = {'coords': coords_metric, 'sparse': sparse, 'gate_net': gate_net, 'grid': grid}
 
-        with open(chunk_file, 'wb') as f:
+    def collect(chunk_start, chunk_results, chunk_skipped, n_done):
+        with open(partial_dir / f"chunk_{chunk_start:06d}.pkl", 'wb') as f:
             pickle.dump((chunk_results, chunk_skipped), f, protocol=pickle.HIGHEST_PROTOCOL)
-        results.extend(chunk_results)
-        skipped += chunk_skipped
-        computed += 1
-
-        done = min(chunk_start + CHECKPOINT_EVERY, len(stops))
+        chunks[chunk_start] = (chunk_results, chunk_skipped)
         elapsed = (datetime.now() - start_time).total_seconds()
-        remaining = elapsed / computed * (len(stops) - done) / CHECKPOINT_EVERY
-        print(f"  [{done}/{len(stops)}] {done / len(stops) * 100:.0f}% — "
-              f"{elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining", flush=True)
+        remaining = elapsed / n_done * (len(pending) - n_done)
+        print(f"  chunk {n_done}/{len(pending)} — {elapsed:.0f}s elapsed, "
+              f"~{remaining:.0f}s remaining", flush=True)
+
+    if workers > 1:
+        from multiprocessing import Pool
+        shared_dir = data_dir / f".shared_isochrones{suffix}"
+        save_shared(shared_dir, ctx)
+        del ctx, sparse, gate_net, grid  # workers memory-map their own view
+        import gc; gc.collect()
+        with Pool(workers, initializer=_init_worker, initargs=(str(shared_dir),)) as pool:
+            for n, (c, res, sk) in enumerate(pool.imap_unordered(process_chunk, tasks()), 1):
+                collect(c, res, sk, n)
+        shutil.rmtree(shared_dir, ignore_errors=True)
+    else:
+        global _CTX
+        _CTX = ctx
+        for n, task in enumerate(tasks(), 1):
+            collect(*process_chunk(task), n)
+
+    results = [r for c in sorted(chunks) for r in chunks[c][0]]
+    skipped = sum(chunks[c][1] for c in chunks)
 
     elapsed = (datetime.now() - start_time).total_seconds()
     print(f"\n{'='*60}")
