@@ -46,11 +46,12 @@ LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
 # Building colouring (--buildings, from 05_building_values.py)
 COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
 BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
+BUILDING_SATURATION = 1.0      # saturation multiplier for building colours
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
 BIG_BUILDING_RIM_M = 20        # covered big buildings show an accessible rim this deep
 
 
-def building_renderer(coverage_renderer, shade=BUILDING_SHADE):
+def building_renderer(coverage_renderer, shade=BUILDING_SHADE, saturation=BUILDING_SATURATION):
     """Copy of the coverage renderer on max_trips with opaque, slightly darker fills."""
     import copy
     r = copy.deepcopy(coverage_renderer)
@@ -60,8 +61,11 @@ def building_renderer(coverage_renderer, shade=BUILDING_SHADE):
         sym['alpha'] = 1.0
         for cls, props in sym['layers']:
             if cls == 'SimpleFill':
-                c = [int(v) for v in props['color'].split(',')[:3]]
-                props['color'] = ','.join(str(int(v * shade)) for v in c) + ',255'
+                import colorsys
+                c = [int(v) / 255 for v in props['color'].split(',')[:3]]
+                h, sat, val = colorsys.rgb_to_hsv(*c)
+                c = colorsys.hsv_to_rgb(h, min(1.0, sat * saturation), val * shade)
+                props['color'] = ','.join(str(int(round(v * 255))) for v in c) + ',255'
                 props['outline_style'] = 'no'
     return r
 
@@ -561,6 +565,8 @@ def main():
                         help=f'With --buildings: area fill opacity factor (default {COVERAGE_FADE})')
     parser.add_argument('--building-shade', type=float, default=BUILDING_SHADE,
                         help=f'With --buildings: class colour multiplier on buildings (default {BUILDING_SHADE})')
+    parser.add_argument('--building-saturation', type=float, default=BUILDING_SATURATION,
+                        help=f'With --buildings: saturation multiplier (default {BUILDING_SATURATION})')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -651,7 +657,7 @@ def main():
         del rgba
         if bld is not None and layer['path'] == coverage:
             # Buildings carry the colour: best frequency per small building, big ones grey
-            br = building_renderer(layer['renderer'], args.building_shade)
+            br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)
             for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
                                   (bld[~bld['big'] & bld['residents_only']], RESIDENTS_ALPHA + 0.15)]:
                 if len(subset):
