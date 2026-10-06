@@ -148,7 +148,30 @@ def process_tile(task):
                     best[route] = count
         if best:
             out.append((pieces[p], len(best), sum(best.values())))
-    return tile_id, out
+
+    # Pre-dissolve inside the tile: one shape per trip value. Pieces from one
+    # polygonize form a clean coverage, so coverage_union_all is safe and fast.
+    groups = {}
+    for geom, routes, trips in out:
+        groups.setdefault(trips, [routes, []])[1].append(geom)
+    merged = [(_coverage_union(geoms), routes, trips)
+              for trips, (routes, geoms) in groups.items()]
+    return tile_id, merged
+
+
+def _coverage_union(geoms):
+    if len(geoms) == 1:
+        return geoms[0]
+    try:
+        return shapely.coverage_union_all(geoms)
+    except Exception:
+        return unary_union(geoms)
+
+
+def dissolve_group(task):
+    """Final cross-tile dissolve of one trip value (runs in a worker)."""
+    trips, routes, geoms = task
+    return trips, routes, unary_union(geoms)
 
 
 def make_tasks(gdf, tile_m):
@@ -203,7 +226,7 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
 
     # Step 2: Tiled planar subdivision + route dedup
     tasks = make_tasks(gdf, tile_m)
-    tiles_dir = cache_dir / f"tiles_{tile_m}" if cache_dir else None
+    tiles_dir = cache_dir / f"tiles_{tile_m}_v2" if cache_dir else None  # v2: pre-dissolved
     if tiles_dir:
         tiles_dir.mkdir(exist_ok=True)
     done = {}
@@ -259,12 +282,28 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
     pieces_gdf = pieces_gdf[~pieces_gdf.geometry.is_empty]
     print(f"  {len(pieces_gdf)} pieces with coverage\n")
 
-    # Step 3: Dissolve adjacent pieces with the same deduped trip count
-    print("Step 3: Dissolving adjacent pieces...", flush=True)
-    dissolved = pieces_gdf.dissolve(
-        by='deduped_trips',
-        aggfunc={'unique_routes': 'first'}
-    ).reset_index()
+    # Step 3: Dissolve across tile edges, one trip value per task, in parallel
+    groups = {}
+    for routes, trips, geom in zip(pieces_gdf['unique_routes'], pieces_gdf['deduped_trips'],
+                                   pieces_gdf.geometry):
+        groups.setdefault(trips, [routes, []])[1].append(geom)
+    tasks3 = sorted(((t, r, g) for t, (r, g) in groups.items()), key=lambda x: -len(x[2]))
+    del pieces_gdf
+    print(f"Step 3: Dissolving {len(tasks3)} trip values across tiles "
+          f"({workers} workers)...", flush=True)
+    start = datetime.now()
+    out3 = []
+    report_every = max(1, len(tasks3) // 10)
+    with Pool(workers) as pool:
+        for n, res in enumerate(pool.imap_unordered(dissolve_group, tasks3), 1):
+            out3.append(res)
+            if n % report_every == 0 or n == len(tasks3):
+                el = (datetime.now() - start).total_seconds()
+                print(f"    {n}/{len(tasks3)} values — {el:.0f}s elapsed, "
+                      f"{free_gb():.1f} GB RAM free", flush=True)
+    dissolved = gpd.GeoDataFrame(
+        {'deduped_trips': [o[0] for o in out3], 'unique_routes': [o[1] for o in out3]},
+        geometry=[o[2] for o in out3], crs=crs_metric)
     dissolved = dissolved.explode(index_parts=False).reset_index(drop=True)
     print(f"  {len(dissolved)} polygons after dissolve\n")
 
