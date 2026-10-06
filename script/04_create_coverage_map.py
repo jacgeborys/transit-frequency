@@ -191,18 +191,23 @@ def make_tasks(gdf, tile_m):
     return tasks
 
 
-def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
+def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
                         workers=DEFAULT_WORKERS, tile_m=TILE_M):
     """
     Planar subdivision:
     1. Fix all geometries
     2. Per tile: union clipped boundaries, polygonize, dedup routes per piece
     3. Dissolve adjacent pieces with the same deduped trip count
-    """
-    print(f"\nCreating coverage map from {len(isochrones_gdf)} isochrones...\n")
 
-    original_crs = isochrones_gdf.crs
-    gdf = isochrones_gdf.to_crs(crs_metric).copy()
+    Loads the isochrones itself and releases each stage once the next exists,
+    so peak memory stays low on large cities.
+    """
+    print("Loading isochrones...", end=' ', flush=True)
+    gdf = gpd.read_file(input_file)
+    original_crs = gdf.crs
+    gdf = gdf.to_crs(crs_metric)
+    print(f"{len(gdf)} loaded")
+    print(f"\nCreating coverage map from {len(gdf)} isochrones...\n")
 
     # Step 1: Fix geometries
     print("Step 1: Fixing geometries...")
@@ -226,6 +231,7 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
 
     # Step 2: Tiled planar subdivision + route dedup
     tasks = make_tasks(gdf, tile_m)
+    del gdf  # tasks hold the geometries they need
     tiles_dir = cache_dir / f"tiles_{tile_m}_v2" if cache_dir else None  # v2: pre-dissolved
     if tiles_dir:
         tiles_dir.mkdir(exist_ok=True)
@@ -271,7 +277,9 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
                           f"~{el / n * (len(todo) - n):.0f}s remaining, "
                           f"{free_gb():.1f} GB RAM free", flush=True)
 
+    del tasks, todo, queue, in_flight
     rows = [r for result in done.values() for r in result]
+    del done
     if not rows:
         print("ERROR: No polygons created")
         return None
@@ -279,6 +287,7 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
         {'unique_routes': [r[1] for r in rows], 'deduped_trips': [r[2] for r in rows]},
         geometry=shapely.set_precision([r[0] for r in rows], SNAP_M),
         crs=crs_metric)
+    del rows
     pieces_gdf = pieces_gdf[~pieces_gdf.geometry.is_empty]
     print(f"  {len(pieces_gdf)} pieces with coverage\n")
 
@@ -288,7 +297,7 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
                                    pieces_gdf.geometry):
         groups.setdefault(trips, [routes, []])[1].append(geom)
     tasks3 = sorted(((t, r, g) for t, (r, g) in groups.items()), key=lambda x: -len(x[2]))
-    del pieces_gdf
+    del pieces_gdf, groups
     print(f"Step 3: Dissolving {len(tasks3)} trip values across tiles "
           f"({workers} workers)...", flush=True)
     start = datetime.now()
@@ -301,9 +310,11 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
                 el = (datetime.now() - start).total_seconds()
                 print(f"    {n}/{len(tasks3)} values — {el:.0f}s elapsed, "
                       f"{free_gb():.1f} GB RAM free", flush=True)
+    del tasks3
     dissolved = gpd.GeoDataFrame(
         {'deduped_trips': [o[0] for o in out3], 'unique_routes': [o[1] for o in out3]},
         geometry=[o[2] for o in out3], crs=crs_metric)
+    del out3
     dissolved = dissolved.explode(index_parts=False).reset_index(drop=True)
     print(f"  {len(dissolved)} polygons after dissolve\n")
 
@@ -378,17 +389,13 @@ def main():
         print("Run 03_generate_isochrones_local.py first.")
         return
 
-    print("Loading isochrones...", end=' ', flush=True)
-    isochrones = gpd.read_file(input_file)
-    print(f"{len(isochrones)} loaded")
-
     # Intermediate results are cached so an interrupted run resumes where it stopped
     stat = input_file.stat()
     cache_dir = data_dir / f".cache_coverage{suffix}_{stat.st_size}_{int(stat.st_mtime)}"
     cache_dir.mkdir(exist_ok=True)
 
     start_time = datetime.now()
-    coverage = create_coverage_map(isochrones, crs_metric, cache_dir, args.workers, args.tile)
+    coverage = create_coverage_map(input_file, crs_metric, cache_dir, args.workers, args.tile)
 
     if coverage is None or len(coverage) == 0:
         print("Failed to create coverage map!")

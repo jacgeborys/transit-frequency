@@ -8,6 +8,7 @@ Usage:
     python 02_fetch_walking_network.py --city gdansk
 """
 import argparse
+import sys
 import json
 import warnings
 import osmnx as ox
@@ -21,8 +22,12 @@ from shapely.geometry import box
 
 from cities import get_city, add_city_argument
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Public mirrors (kumi.systems, private.coffee) were unreachable from here in 2026-10;
+# add them back to this list if the main server keeps failing.
+OVERPASS_URLS = ["https://overpass-api.de/api/interpreter"]
+ATTEMPTS_PER_TILE = 4
 HEADERS = {'User-Agent': 'QGIS-walking-network/1.0', 'Accept': '*/*'}
+RETRY_ROUNDS = 2  # extra passes over failed tiles before giving up
 
 WALK_QUERY = """[out:json][timeout:180];
 (way["highway"]["area"!~"yes"]["highway"!~"abandoned|bus_guideway|construction|cycleway|motor|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"]({bbox});>;);out;"""
@@ -54,13 +59,15 @@ def fetch_tile_json(tile, cache_dir):
     bbox_str = f"{tile['south']},{tile['west']},{tile['north']},{tile['east']}"
     query = WALK_QUERY.format(bbox=bbox_str)
 
-    for attempt in range(3):
+    for attempt in range(ATTEMPTS_PER_TILE):
+        url = OVERPASS_URLS[attempt % len(OVERPASS_URLS)]
         try:
             if attempt > 0:
-                wait = 60 * attempt
-                print(f"retry {attempt} (wait {wait}s)...", end=" ", flush=True)
+                wait = 20 * attempt
+                host = url.split('/')[2]
+                print(f"retry {attempt} via {host} (wait {wait}s)...", end=" ", flush=True)
                 time.sleep(wait)
-            resp = requests.post(OVERPASS_URL, data={'data': query},
+            resp = requests.post(url, data={'data': query},
                                  headers=HEADERS, timeout=300)
             if resp.status_code == 429:
                 wait = 60 * (2 ** attempt)
@@ -72,6 +79,11 @@ def fetch_tile_json(tile, cache_dir):
                 time.sleep(30)
                 continue
             data = resp.json()
+            # A timed-out query can still return 200 with partial data and a remark
+            remark = str(data.get('remark', ''))
+            if 'error' in remark.lower():
+                print(f"partial result ({remark[:50]})...", end=" ", flush=True)
+                continue
             cache_file.write_text(json.dumps(data), encoding='utf-8')
             return data
         except requests.exceptions.Timeout:
@@ -132,6 +144,10 @@ def build_graph_from_jsons(jsons):
 def main():
     parser = argparse.ArgumentParser(description='Fetch walking network')
     add_city_argument(parser)
+    parser.add_argument('--download-only', action='store_true',
+                        help='Only download/cache the tiles; build the graph in a later run')
+    parser.add_argument('--graphml', action='store_true',
+                        help='Also save GraphML (slow and memory-hungry; 03 only needs the pickle)')
     args = parser.parse_args()
 
     city = get_city(args.city)
@@ -146,8 +162,8 @@ def main():
     print("=" * 60)
     print(f"Output: {network_dir}\n")
 
-    if network_file.exists():
-        print(f"Network already exists at {network_file}")
+    if network_file.exists() or network_cache.exists():
+        print(f"Network already exists at {network_cache if network_cache.exists() else network_file}")
         print("Delete it manually and re-run if you want to refresh.")
         return
 
@@ -163,25 +179,47 @@ def main():
     start_time = datetime.now()
     jsons = []
 
-    for i, tile in enumerate(tiles, 1):
-        print(f"  [{i}/{len(tiles)}] {tile['id']}...", end=" ", flush=True)
-        data = fetch_tile_json(tile, cache_dir)
-        if data is not None:
-            n_elems = len(data.get('elements', []))
-            print(f"{n_elems:,} elements")
-            jsons.append(data)
-        else:
-            print("FAILED")
+    # Every tile must be present: a missing tile would leave a hole in the network.
+    # Successful tiles are cached, so failed ones are retried in later rounds (and
+    # on a rerun) without downloading everything again.
+    pending = list(tiles)
+    for round_no in range(RETRY_ROUNDS + 1):
+        if round_no > 0:
+            wait = 120 * round_no
+            print(f"\n  Retry round {round_no}: {len(pending)} failed tile(s), waiting {wait}s...")
+            time.sleep(wait)
+        failed = []
+        for i, tile in enumerate(pending, 1):
+            print(f"  [{i}/{len(pending)}] {tile['id']}...", end=" ", flush=True)
+            data = fetch_tile_json(tile, cache_dir)
+            if data is not None:
+                n_elems = len(data.get('elements', []))
+                print(f"{n_elems:,} elements")
+                jsons.append(data)
+            else:
+                print("FAILED")
+                failed.append(tile)
 
-        if i < len(tiles):
-            time.sleep(10)
+            if i < len(pending):
+                time.sleep(10)
+        pending = failed
+        if not pending:
+            break
 
-    if not jsons:
-        print("No tiles downloaded!")
+    if pending:
+        ids = ', '.join(t['id'] for t in pending)
+        print(f"\nERROR: {len(pending)} tile(s) still failing ({ids}). Network NOT built.")
+        print("Rerun later: cached tiles are reused, only the missing ones are downloaded.")
+        sys.exit(1)
+
+    if args.download_only:
+        print(f"\nAll {len(tiles)} tiles cached in {cache_dir}. Rerun without --download-only to build.")
         return
 
     print(f"\nBuilding graph from {len(jsons)} tiles...", end=" ", flush=True)
     G = build_graph_from_jsons(jsons)
+    del jsons  # raw Overpass data (GBs for a large city) is no longer needed
+    import gc; gc.collect()
     # Remove isolated nodes
     isolates = list(nx.isolates(G))
     G.remove_nodes_from(isolates)
@@ -190,14 +228,16 @@ def main():
     elapsed = (datetime.now() - start_time).total_seconds()
     print(f"Downloaded in {elapsed:.1f}s")
 
-    print("Saving GraphML...", end=' ', flush=True)
-    ox.save_graphml(G, network_file)
-    print(f"Done ({network_file.stat().st_size / 1024 / 1024:.1f} MB)")
-
+    # Pickle first: it's what 03 reads, and it's compact and fast to write
     print("Saving pickle...", end=' ', flush=True)
     with open(network_cache, 'wb') as f:
         pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
     print(f"Done ({network_cache.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    if args.graphml:  # optional: large text format, memory-hungry for big cities
+        print("Saving GraphML...", end=' ', flush=True)
+        ox.save_graphml(G, network_file)
+        print(f"Done ({network_file.stat().st_size / 1024 / 1024:.1f} MB)")
 
     print("\n" + "=" * 60)
     print("Done! Network ready for isochrone generation.")
