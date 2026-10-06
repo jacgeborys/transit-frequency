@@ -39,6 +39,9 @@ from cities import get_city, add_city_argument, PROJECT_DIR
 
 PROJECT_FILE = PROJECT_DIR / "transit-frequency-map.qgz"
 MM_TO_PT = 72 / 25.4
+RESIDENTS_ALPHA = 0.3          # residents-only zones: same class colour, this much opacity
+RESIDENTS_LABEL = 'tylko dla mieszkańców'
+LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
 MM_PER_INCH = 25.4
 POLY_BATCH = 3000
 
@@ -417,7 +420,7 @@ def legend_style(item, name):
             'marginTop': float(st.get('marginTop', 0)), 'marginLeft': float(st.get('marginLeft', 0))}
 
 
-def draw_legend(fig, page_mm, item, legend_layer, to_fig):
+def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False):
     """Single-column legend: layer title + one patch per renderer class."""
     box = float(item.get('boxSpace', 2))
     sw, sh = float(item.get('symbolWidth', 7)), float(item.get('symbolHeight', 4))
@@ -432,12 +435,13 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig):
     pt_to_mm = 25.4 / 72
     title_h = title_st['size'] * pt_to_mm
     row_h = sh + sym_st['marginTop']
-    height = box + title_h + len(entries) * row_h + box
+    extra = [RESIDENTS_LABEL] if residents else []
+    height = box + title_h + (len(entries) + len(extra)) * row_h + box
     lab_fp = font_props(lab_st['family'], lab_st['size'], lab_st['style'])
     # Width from the longest label
     renderer = fig.canvas.get_renderer()
     text_w = 0
-    for lab, _ in entries:
+    for lab in [e[0] for e in entries] + extra:
         t = fig.text(0, 0, lab, fontproperties=lab_fp)
         text_w = max(text_w, t.get_window_extent(renderer).width / fig.dpi * 25.4)
         t.remove()
@@ -449,6 +453,8 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig):
     ax_, ay_ = parse_mm(item.get('position'))
     x = ax_ - width * (ref % 3) / 2
     y = ay_ - height * (ref // 3) / 2
+    # A longer label (e.g. the residents row) must not push the legend off the page
+    x = max(LEGEND_PAGE_MARGIN_MM, min(x, page_mm[0] - LEGEND_PAGE_MARGIN_MM - width))
 
     frame_w = parse_mm(item.get('outlineWidthM', '0.3,mm'))[0] * MM_TO_PT
     fig.add_artist(Rectangle(to_fig(x, y + height), width / page_mm[0], height / page_mm[1],
@@ -469,6 +475,16 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig):
         fig.text(*to_fig(x + box + sw + lab_st['marginLeft'], cy + sh / 2), lab,
                  va='center', ha='left', fontproperties=lab_fp, zorder=11)
         cy += sh
+    if residents:
+        # Pale swatch: a mid-range class at the residents-only opacity
+        cls, p = entries[len(entries) // 2][1]['layers'][0]
+        cy += sym_st['marginTop']
+        color = with_alpha(parse_color(p['color']), RESIDENTS_ALPHA * legend_layer['opacity'])
+        fig.add_artist(Rectangle(to_fig(x + box, cy + sh), sw / page_mm[0], sh / page_mm[1],
+                                 transform=fig.transFigure, facecolor=color,
+                                 edgecolor='none', zorder=11))
+        fig.text(*to_fig(x + box + sw + lab_st['marginLeft'], cy + sh / 2), RESIDENTS_LABEL,
+                 va='center', ha='left', fontproperties=lab_fp, zorder=11)
 
 
 def main():
@@ -478,6 +494,9 @@ def main():
     parser.add_argument('--date', required=True, help='Date for the title, DD.MM.YYYY')
     parser.add_argument('--out', required=True, help='Output PNG')
     parser.add_argument('--dpi', type=float, default=None, help='Default: layout print resolution')
+    parser.add_argument('--residents', default=None,
+                        help='coverage_map_*_residents.gpkg: drawn pale where the public '
+                             'coverage does not reach (accessible to residents only)')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -536,6 +555,14 @@ def main():
             radius_px = layer['renderer']['blur_mm'] / MM_PER_INCH * dpi
             rgba = unpremultiply_blur(rgba, radius_px / 2)
         rgba[..., 3] *= layer['opacity']
+        if args.residents and layer['path'] == coverage:
+            # Residents-only zones: same symbology, pale, only where public coverage is absent
+            res_layer = dict(layer, path=Path(args.residents).resolve(), layername=None)
+            res = render_layer_rgba(load_layer_data(res_layer, extent, map_crs),
+                                    layer['renderer'], extent, map_px, dpi)
+            res[..., 3] *= layer['opacity'] * RESIDENTS_ALPHA * (rgba[..., 3] < 0.01)
+            blend(canvas, res, 'normal')
+            del res
         blend(canvas, rgba, mode)
         del rgba
 
@@ -568,7 +595,7 @@ def main():
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = leg_node.get('name')
-        draw_legend(fig, page_mm, legend_item, leg_layer, to_fig)
+        draw_legend(fig, page_mm, legend_item, leg_layer, to_fig, residents=bool(args.residents))
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
