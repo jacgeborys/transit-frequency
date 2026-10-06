@@ -42,6 +42,58 @@ MM_TO_PT = 72 / 25.4
 RESIDENTS_ALPHA = 0.3          # residents-only zones: same class colour, this much opacity
 RESIDENTS_LABEL = 'tylko dla mieszkańców'
 LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
+
+# Building colouring (--buildings, from 05_building_values.py)
+COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
+BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
+BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
+
+
+def building_renderer(coverage_renderer):
+    """Copy of the coverage renderer on max_trips with opaque, slightly darker fills."""
+    import copy
+    r = copy.deepcopy(coverage_renderer)
+    r['attr'] = 'max_trips'
+    r['blur_mm'] = 0.0
+    for sym in r['symbols'].values():
+        sym['alpha'] = 1.0
+        for cls, props in sym['layers']:
+            if cls == 'SimpleFill':
+                c = [int(v) for v in props['color'].split(',')[:3]]
+                props['color'] = ','.join(str(int(v * BUILDING_SHADE)) for v in c) + ',255'
+                props['outline_style'] = 'no'
+    return r
+
+
+def big_building_renderer():
+    return {'type': 'singleSymbol', 'attr': None, 'blur_mm': 0.0,
+            'symbols': {'0': {'type': 'fill', 'alpha': 1.0, 'layers': [
+                ('SimpleFill', {'color': BIG_BUILDING_RGB, 'style': 'solid',
+                                'outline_style': 'no'})]}}}
+
+
+# Alternative palettes for the frequency classes: (matplotlib colormap, start, end).
+# Only the RGB changes; each class keeps its alpha from the QGIS style.
+PALETTES = {
+    'turbo': ('turbo', 0.0, 1.0),
+    'turbo_light': ('turbo', 0.3, 1.0),   # skip turbo's dark blue start: low = light green
+}
+
+
+def apply_palette(renderer, name):
+    """Recolour a graduated renderer's classes in place with a matplotlib colormap."""
+    if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
+        return
+    cmap_name, a, b = PALETTES[name]
+    cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
+        else plt.get_cmap(cmap_name)
+    syms = [s for _, _, s, _, _ in renderer['ranges']]
+    for k, sym_name in enumerate(syms):
+        r, g, bl, _ = cmap(a + (b - a) * k / max(1, len(syms) - 1))
+        for cls, props in renderer['symbols'][sym_name]['layers']:
+            if cls == 'SimpleFill':
+                alpha = props['color'].split(',')[3]
+                props['color'] = f"{int(r * 255)},{int(g * 255)},{int(bl * 255)},{alpha}"
 MM_PER_INCH = 25.4
 POLY_BATCH = 3000
 
@@ -494,9 +546,16 @@ def main():
     parser.add_argument('--date', required=True, help='Date for the title, DD.MM.YYYY')
     parser.add_argument('--out', required=True, help='Output PNG')
     parser.add_argument('--dpi', type=float, default=None, help='Default: layout print resolution')
+    parser.add_argument('--palette', default='qgis', choices=['qgis'] + sorted(PALETTES),
+                        help='Frequency class colours (default: as in the QGIS project)')
+    parser.add_argument('--residents-legend', action='store_true',
+                        help='Add a legend row for the pale residents-only colour')
     parser.add_argument('--residents', default=None,
                         help='coverage_map_*_residents.gpkg: drawn pale where the public '
                              'coverage does not reach (accessible to residents only)')
+    parser.add_argument('--buildings', default=None,
+                        help='buildings_<variant>.gpkg from 05_building_values.py: colour small '
+                             'buildings by their best frequency, grey out big ones')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -537,6 +596,13 @@ def main():
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
             layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
+            apply_palette(layer['renderer'], args.palette)
+
+    bld = None
+    if args.buildings:
+        bld = gpd.read_file(args.buildings).to_crs(map_crs)
+        styled_ids = set(bld['osm_id'].astype('int64'))
+        print(f"  buildings: {(~bld['big']).sum():,} coloured, {bld['big'].sum():,} big (grey)")
 
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
@@ -547,6 +613,8 @@ def main():
         mode = BLEND_NAMES.get(layer['blend'], 'normal')
         print(f"  {layer['name']:<20} opacity={layer['opacity']:<5g} blend={mode:<7}", end=' ', flush=True)
         gdf = load_layer_data(layer, extent, map_crs)
+        if bld is not None and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
+            gdf = gdf[~gdf['osm_id'].astype('int64').isin(styled_ids)]  # styled separately
         print(f"{len(gdf):>8,} features", flush=True)
         if gdf.empty:
             continue
@@ -555,6 +623,8 @@ def main():
             radius_px = layer['renderer']['blur_mm'] / MM_PER_INCH * dpi
             rgba = unpremultiply_blur(rgba, radius_px / 2)
         rgba[..., 3] *= layer['opacity']
+        if bld is not None and layer['path'] == coverage:
+            rgba[..., 3] *= COVERAGE_FADE
         if args.residents and layer['path'] == coverage:
             # Residents-only zones: same symbology, pale, only where public coverage is absent
             res_layer = dict(layer, path=Path(args.residents).resolve(), layername=None)
@@ -565,6 +635,21 @@ def main():
             del res
         blend(canvas, rgba, mode)
         del rgba
+        if bld is not None and layer['path'] == coverage:
+            # Buildings carry the colour: best frequency per small building, big ones grey
+            br = building_renderer(layer['renderer'])
+            for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
+                                  (bld[~bld['big'] & bld['residents_only']], RESIDENTS_ALPHA + 0.15)]:
+                if len(subset):
+                    b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
+                    b_rgba[..., 3] *= alpha
+                    blend(canvas, b_rgba, 'normal')
+                    del b_rgba
+            big = bld[bld['big']]
+            if len(big):
+                b_rgba = render_layer_rgba(big, big_building_renderer(), extent, map_px, dpi)
+                blend(canvas, b_rgba, 'normal')
+                del b_rgba
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
@@ -595,7 +680,9 @@ def main():
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = leg_node.get('name')
-        draw_legend(fig, page_mm, legend_item, leg_layer, to_fig, residents=bool(args.residents))
+        apply_palette(leg_layer['renderer'], args.palette)
+        draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
+                    residents=bool(args.residents) and args.residents_legend)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
