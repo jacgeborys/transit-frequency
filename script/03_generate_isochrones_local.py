@@ -26,6 +26,7 @@ can be deduplicated by transit line in downstream processing.
 import sys
 import argparse
 import pickle
+import shutil
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -38,7 +39,7 @@ from pyproj import Transformer
 from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, binary_dilation, label
 
 from cities import get_city, add_city_argument
 
@@ -51,7 +52,12 @@ BUFFER_M = 50         # buffer around nodes and edges
 CELL_M = 2.0                      # raster resolution
 BUILDING_PERMEABILITY_M = 10      # how far into a building the isochrone reaches
 EXCLUDED_BUILDING_TYPES = {'roof', 'carport'}  # open structures, walkable underneath
+MIN_HOLE_M2 = 200                 # enclosed holes smaller than this are filled
+MIN_PART_M2 = 50                  # detached fragments smaller than this are dropped
 OPEN, BUILDING, BARRIER = 0, 1, 2
+EIGHT = np.ones((3, 3), dtype=bool)
+
+CHECKPOINT_EVERY = 250            # stops per checkpoint chunk (resume after a crash)
 
 
 def load_network(city: dict):
@@ -263,8 +269,32 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
         depth = distance_transform_edt(~reached) * CELL_M
         reached |= building & (depth <= BUILDING_PERMEABILITY_M)
 
+    # Fence cells bordering the reached area count as reached, so a fence
+    # crossing open ground doesn't cut a 2 m slit (it still blocked the spread)
+    barrier = win == BARRIER
+    if barrier.any():
+        reached |= barrier & binary_dilation(reached, structure=EIGHT)
+
+    # Fill small enclosed holes (building cores, raster pockets)
+    holes, _ = label(~reached)
+    hole_cells = np.bincount(holes.ravel())
+    small = hole_cells * CELL_M ** 2 < MIN_HOLE_M2
+    small[0] = False
+    border = np.unique(np.r_[holes[0], holes[-1], holes[:, 0], holes[:, -1]])
+    small[border] = False
+    reached |= small[holes]
+
+    # Drop tiny detached fragments
+    parts, _ = label(reached, structure=EIGHT)
+    keep = np.bincount(parts.ravel()) * CELL_M ** 2 >= MIN_PART_M2
+    keep[0] = False
+    reached = keep[parts]
+    if not reached.any():
+        return None
+
     polys = [shape(geom) for geom, val in
-             shapes(reached.astype(np.uint8), mask=reached, transform=transform)
+             shapes(reached.astype(np.uint8), mask=reached, transform=transform,
+                    connectivity=8)
              if val == 1]
     if not polys:
         return None
@@ -341,49 +371,72 @@ def main():
 
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
-    print(f"Generating isochrones...\n")
+    # Checkpoints: one pickle per chunk of stops; the folder name encodes the
+    # parameters so a change in settings never reuses stale chunks
+    params = f"{DISTANCE_M:.0f}_{BUFFER_M}"
+    if args.barriers:
+        params += f"_c{CELL_M:g}_b{BUILDING_PERMEABILITY_M}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
+    partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
+    partial_dir.mkdir(exist_ok=True)
+
+    print(f"Generating isochrones (checkpoints in {partial_dir.name})...\n")
     start_time = datetime.now()
     results = []
     skipped = 0
+    computed = 0
 
-    report_interval = max(50, len(stops) // 20)  # ~5% increments, min 50
-    for seq, (_, stop) in enumerate(stops.iterrows()):
-        if seq % report_interval == 0 and seq > 0:
-            elapsed = (datetime.now() - start_time).total_seconds()
-            rate = elapsed / seq
-            remaining = rate * (len(stops) - seq)
-            pct = seq / len(stops) * 100
-            print(f"  [{seq}/{len(stops)}] {pct:.0f}% — {elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining")
+    for chunk_start in range(0, len(stops), CHECKPOINT_EVERY):
+        chunk_file = partial_dir / f"chunk_{chunk_start:06d}.pkl"
+        if chunk_file.exists():
+            with open(chunk_file, 'rb') as f:
+                chunk_results, chunk_skipped = pickle.load(f)
+            results.extend(chunk_results)
+            skipped += chunk_skipped
+            continue
 
-        sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
-        _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
+        chunk_results, chunk_skipped = [], 0
+        for _, stop in stops.iloc[chunk_start:chunk_start + CHECKPOINT_EVERY].iterrows():
+            sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
+            _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
 
-        reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
-        if reachable is None:
-            polygon_metric = None
-        elif grid is not None:
-            polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
-        else:
-            polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
+            reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
+            if reachable is None:
+                polygon_metric = None
+            elif grid is not None:
+                polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
+            else:
+                polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
 
-        if polygon_metric is not None and not polygon_metric.is_empty:
-            results.append({
-                'stop_id': stop['stop_id'],
-                'stop_name': stop.get('stop_name', ''),
-                'trip_count': int(stop.get('trip_count', 0)),
-                'unique_routes': int(stop.get('unique_routes', 0)),
-                'route_ids': stop.get('route_ids', ''),
-                'route_trip_counts': stop.get('route_trip_counts', ''),
-                'bus': int(stop.get('bus', 0)),
-                'tram': int(stop.get('tram', 0)),
-                'train': int(stop.get('train', 0)),
-                'metro': int(stop.get('metro', 0)),
-                'time_minutes': TIME_LIMIT,
-                'distance_m': DISTANCE_M,
-                'geometry': polygon_metric,
-            })
-        else:
-            skipped += 1
+            if polygon_metric is not None and not polygon_metric.is_empty:
+                chunk_results.append({
+                    'stop_id': stop['stop_id'],
+                    'stop_name': stop.get('stop_name', ''),
+                    'trip_count': int(stop.get('trip_count', 0)),
+                    'unique_routes': int(stop.get('unique_routes', 0)),
+                    'route_ids': stop.get('route_ids', ''),
+                    'route_trip_counts': stop.get('route_trip_counts', ''),
+                    'bus': int(stop.get('bus', 0)),
+                    'tram': int(stop.get('tram', 0)),
+                    'train': int(stop.get('train', 0)),
+                    'metro': int(stop.get('metro', 0)),
+                    'time_minutes': TIME_LIMIT,
+                    'distance_m': DISTANCE_M,
+                    'geometry': polygon_metric,
+                })
+            else:
+                chunk_skipped += 1
+
+        with open(chunk_file, 'wb') as f:
+            pickle.dump((chunk_results, chunk_skipped), f, protocol=pickle.HIGHEST_PROTOCOL)
+        results.extend(chunk_results)
+        skipped += chunk_skipped
+        computed += 1
+
+        done = min(chunk_start + CHECKPOINT_EVERY, len(stops))
+        elapsed = (datetime.now() - start_time).total_seconds()
+        remaining = elapsed / computed * (len(stops) - done) / CHECKPOINT_EVERY
+        print(f"  [{done}/{len(stops)}] {done / len(stops) * 100:.0f}% — "
+              f"{elapsed:.0f}s elapsed, ~{remaining:.0f}s remaining", flush=True)
 
     elapsed = (datetime.now() - start_time).total_seconds()
     print(f"\n{'='*60}")
@@ -400,6 +453,7 @@ def main():
     gdf['area_ha'] = gdf.geometry.area / 10000
     gdf = gdf.to_crs("EPSG:4326")
     gdf.to_file(output_file, driver="GPKG")
+    shutil.rmtree(partial_dir)  # checkpoints no longer needed
 
     print("Done")
     print(f"\n  Avg area: {gdf['area_ha'].mean():.1f} ha")

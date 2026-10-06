@@ -16,6 +16,8 @@ Usage:
     python 04_create_coverage_map.py --city warsaw --barriers   # isochrones_barriers -> coverage_map_barriers
 """
 import argparse
+import pickle
+import shutil
 import geopandas as gpd
 import numpy as np
 from pathlib import Path
@@ -75,7 +77,22 @@ def dedup_routes(group):
     return len(best_per_route), sum(best_per_route.values())
 
 
-def create_coverage_map(isochrones_gdf, crs_metric: str):
+def _cached(cache_dir, name, compute):
+    """Return pickled result from cache_dir/name.pkl, computing and storing it if missing."""
+    if cache_dir is None:
+        return compute()
+    f = cache_dir / f"{name}.pkl"
+    if f.exists():
+        print(f"  (loaded {name} from cache)")
+        with open(f, 'rb') as fh:
+            return pickle.load(fh)
+    result = compute()
+    with open(f, 'wb') as fh:
+        pickle.dump(result, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    return result
+
+
+def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None):
     """
     Planar subdivision:
     1. Fix all geometries
@@ -91,39 +108,45 @@ def create_coverage_map(isochrones_gdf, crs_metric: str):
 
     # Step 1: Fix geometries
     print("Step 1: Fixing geometries...")
-    valid_mask = []
-    for idx, geom in enumerate(gdf.geometry):
-        if (idx + 1) % 1000 == 0:
-            print(f"    {idx + 1}/{len(gdf)}...")
-        fixed = fix_geometry(geom)
-        if fixed is not None:
-            gdf.at[gdf.index[idx], 'geometry'] = fixed
-            valid_mask.append(True)
-        else:
-            valid_mask.append(False)
 
-    gdf = gdf[valid_mask].copy()
+    def fix_all():
+        fixed_gdf = gdf.copy()
+        valid_mask = []
+        for idx, geom in enumerate(fixed_gdf.geometry):
+            if (idx + 1) % 1000 == 0:
+                print(f"    {idx + 1}/{len(fixed_gdf)}...")
+            fixed = fix_geometry(geom)
+            if fixed is not None:
+                fixed_gdf.at[fixed_gdf.index[idx], 'geometry'] = fixed
+                valid_mask.append(True)
+            else:
+                valid_mask.append(False)
+        return fixed_gdf[valid_mask].copy()
+
+    gdf = _cached(cache_dir, 'step1_fixed', fix_all)
     print(f"  {len(gdf)} geometries validated\n")
 
-    # Step 2: Build planar graph from all boundary rings
-    print("Step 2: Building planar graph...")
-    all_rings = []
-    for geom in gdf.geometry:
-        if geom.geom_type == 'Polygon':
-            all_rings.append(geom.exterior)
-            all_rings.extend(geom.interiors)
-        elif geom.geom_type == 'MultiPolygon':
-            for poly in geom.geoms:
-                all_rings.append(poly.exterior)
-                all_rings.extend(poly.interiors)
+    # Steps 2-3: Planar graph from all boundary rings, then polygonize
+    def build_pieces():
+        print("Step 2: Building planar graph...")
+        all_rings = []
+        for geom in gdf.geometry:
+            if geom.geom_type == 'Polygon':
+                all_rings.append(geom.exterior)
+                all_rings.extend(geom.interiors)
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    all_rings.append(poly.exterior)
+                    all_rings.extend(poly.interiors)
 
-    print(f"  {len(all_rings)} boundary rings")
-    print(f"  Merging boundaries (this may take a while)...")
-    planar_graph = unary_union(all_rings)
+        print(f"  {len(all_rings)} boundary rings")
+        print(f"  Merging boundaries (this may take a while)...", flush=True)
+        planar_graph = unary_union(all_rings)
 
-    # Step 3: Polygonize
-    print("Step 3: Polygonizing...")
-    pieces = list(polygonize(planar_graph))
+        print("Step 3: Polygonizing...")
+        return list(polygonize(planar_graph))
+
+    pieces = _cached(cache_dir, 'step3_pieces', build_pieces)
     print(f"  {len(pieces)} minimal polygons\n")
 
     if not pieces:
@@ -238,8 +261,13 @@ def main():
     isochrones = gpd.read_file(input_file)
     print(f"{len(isochrones)} loaded")
 
+    # Intermediate results are cached so an interrupted run resumes after the slow steps
+    stat = input_file.stat()
+    cache_dir = data_dir / f".cache_coverage{suffix}_{stat.st_size}_{int(stat.st_mtime)}"
+    cache_dir.mkdir(exist_ok=True)
+
     start_time = datetime.now()
-    coverage = create_coverage_map(isochrones, crs_metric)
+    coverage = create_coverage_map(isochrones, crs_metric, cache_dir)
 
     if coverage is None or len(coverage) == 0:
         print("Failed to create coverage map!")
@@ -247,6 +275,7 @@ def main():
 
     print("Saving...", end=' ', flush=True)
     coverage.to_file(output_file, driver="GPKG")
+    shutil.rmtree(cache_dir)  # finished; intermediate cache no longer needed
     elapsed = (datetime.now() - start_time).total_seconds()
     print("Done")
 
