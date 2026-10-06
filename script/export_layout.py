@@ -59,7 +59,7 @@ def main():
     for node in group.findLayers():
         layer = node.layer()
         if layer and 'coverage_map' in layer.source():
-            layer.setDataSource(f"{coverage}|layername=coverage_map", layer.name(), 'ogr')
+            layer.setDataSource(str(coverage), layer.name(), "ogr")  # single-layer gpkg
             repointed += 1
     print(f"Repointed {repointed} coverage layer(s) -> {coverage}")
 

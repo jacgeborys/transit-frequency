@@ -517,7 +517,7 @@ def main():
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
-            layer['path'], layer['layername'] = coverage, 'coverage_map'
+            layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
 
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
