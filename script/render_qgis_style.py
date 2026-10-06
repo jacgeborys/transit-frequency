@@ -47,6 +47,7 @@ LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
 COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
 BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
+BIG_BUILDING_RIM_M = 20        # covered big buildings show an accessible rim this deep
 
 
 def building_renderer(coverage_renderer, shade=BUILDING_SHADE):
@@ -663,6 +664,17 @@ def main():
                 b_rgba = render_layer_rgba(big, big_building_renderer(), extent, map_px, dpi)
                 blend(canvas, b_rgba, 'normal')
                 del b_rgba
+                # Accessible rim: the outer BIG_BUILDING_RIM_M of covered big buildings
+                rim = big[big['max_trips'] > 0].copy()
+                rim['geometry'] = rim.geometry.difference(rim.geometry.buffer(-BIG_BUILDING_RIM_M))
+                rim = rim[~rim.geometry.is_empty]
+                for subset, alpha in [(rim[~rim['residents_only']], 1.0),
+                                      (rim[rim['residents_only']], RESIDENTS_ALPHA + 0.15)]:
+                    if len(subset):
+                        b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
+                        b_rgba[..., 3] *= alpha
+                        blend(canvas, b_rgba, 'normal')
+                        del b_rgba
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
