@@ -10,25 +10,45 @@ For each polygon piece created by overlapping isochrones:
 This prevents inflating frequency when the same bus line passes multiple
 nearby stops that all fall within walking distance.
 
+The subdivision is done per tile (STRtree picks the isochrones touching each
+tile) in parallel worker processes. Finished tiles are cached, so an
+interrupted run resumes where it stopped. Pieces are snapped to a 1 cm grid so
+tile edges line up and the final dissolve joins them seamlessly.
+
 Usage:
     python 04_create_coverage_map.py --city warsaw [data_folder]
     python 04_create_coverage_map.py --city poznan
     python 04_create_coverage_map.py --city warsaw --barriers   # isochrones_barriers -> coverage_map_barriers
+    python 04_create_coverage_map.py --city warsaw --workers 4 --tile 1500
 """
 import argparse
+import os
 import pickle
 import shutil
 import geopandas as gpd
 import numpy as np
+import psutil
+import shapely
+from multiprocessing import Pool
 from pathlib import Path
 from datetime import datetime
 from shapely.ops import unary_union, polygonize
-from shapely.geometry import MultiPolygon, Polygon
+from shapely.geometry import box
+from shapely.strtree import STRtree
 from shapely.validation import make_valid
 import warnings
 warnings.filterwarnings('ignore')
 
 from cities import get_city, add_city_argument
+
+TILE_M = 1500          # tile edge length in metres
+SNAP_M = 0.01          # precision grid; makes both sides of a tile edge identical
+DEFAULT_WORKERS = max(1, min(3, (os.cpu_count() or 2) - 2))
+MIN_FREE_GB = 3.0      # pause dispatching new tiles below this much available RAM
+
+
+def free_gb():
+    return psutil.virtual_memory().available / 1024 ** 3
 
 
 def fix_geometry(geom):
@@ -62,21 +82,6 @@ def parse_route_trip_counts(rtc_str):
     return result
 
 
-def dedup_routes(group):
-    """
-    For a group of overlapping isochrones, deduplicate by route:
-    - For each unique route, take the max trip count across all stops
-    - Sum those maxes = deduplicated frequency
-    """
-    best_per_route = {}
-    for rtc_str in group['route_trip_counts'].dropna():
-        for route, count in parse_route_trip_counts(rtc_str).items():
-            if route not in best_per_route or count > best_per_route[route]:
-                best_per_route[route] = count
-
-    return len(best_per_route), sum(best_per_route.values())
-
-
 def _cached(cache_dir, name, compute):
     """Return pickled result from cache_dir/name.pkl, computing and storing it if missing."""
     if cache_dir is None:
@@ -92,14 +97,83 @@ def _cached(cache_dir, name, compute):
     return result
 
 
-def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None):
+def _rings(geom):
+    polys = geom.geoms if geom.geom_type in ('MultiPolygon', 'GeometryCollection') else [geom]
+    out = []
+    for p in polys:
+        if p.geom_type == 'Polygon':
+            out.append(p.exterior)
+            out.extend(p.interiors)
+    return out
+
+
+def process_tile(task):
+    """
+    Planar subdivision of one tile: clip the isochrones touching it, union their
+    boundaries, polygonize, and dedup routes per piece. Runs in a worker process.
+    task = (tile_id, (minx, miny, maxx, maxy), [geometry], [route_trip_counts])
+    Returns (tile_id, [(piece, unique_routes, deduped_trips), ...]).
+    """
+    tile_id, bounds, geoms, rtcs = task
+    tile = box(*bounds)
+    clipped = []
+    for g, rtc in zip(geoms, rtcs):
+        c = g.intersection(tile)
+        if not c.is_empty and c.area > 0:
+            clipped.append((c, rtc))
+    if not clipped:
+        return tile_id, []
+
+    rings = [r for c, _ in clipped for r in _rings(c)]
+    pieces = list(polygonize(unary_union(rings)))
+    if not pieces:
+        return tile_id, []
+
+    # Which clipped isochrones contain each piece
+    tree = STRtree([c for c, _ in clipped])
+    points = [p.representative_point() for p in pieces]
+    piece_idx, iso_idx = tree.query(points, predicate='within')
+
+    covering = {}
+    for p, i in zip(piece_idx, iso_idx):
+        covering.setdefault(p, []).append(clipped[i][1])
+
+    out = []
+    for p, rtc_list in covering.items():
+        best = {}
+        for rtc in rtc_list:
+            for route, count in parse_route_trip_counts(rtc).items():
+                if count > best.get(route, -1):
+                    best[route] = count
+        if best:
+            out.append((pieces[p], len(best), sum(best.values())))
+    return tile_id, out
+
+
+def make_tasks(gdf, tile_m):
+    """Tile the extent; STRtree selects the isochrones touching each tile."""
+    minx, miny, maxx, maxy = gdf.total_bounds
+    geoms = gdf.geometry.to_numpy()
+    rtcs = gdf['route_trip_counts'].to_numpy()
+    tree = STRtree(geoms)
+    tasks = []
+    for i, x0 in enumerate(np.arange(minx, maxx, tile_m)):
+        for j, y0 in enumerate(np.arange(miny, maxy, tile_m)):
+            bounds = (x0, y0, x0 + tile_m, y0 + tile_m)
+            hits = tree.query(box(*bounds))
+            if len(hits):
+                tasks.append((f"{i:03d}_{j:03d}", bounds,
+                              list(geoms[hits]), list(rtcs[hits])))
+    return tasks
+
+
+def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None,
+                        workers=DEFAULT_WORKERS, tile_m=TILE_M):
     """
     Planar subdivision:
     1. Fix all geometries
-    2. Union all boundaries into a planar graph
-    3. Polygonize into minimal pieces
-    4. For each piece, deduplicate routes across overlapping isochrones
-    5. Dissolve adjacent pieces with the same deduped trip count
+    2. Per tile: union clipped boundaries, polygonize, dedup routes per piece
+    3. Dissolve adjacent pieces with the same deduped trip count
     """
     print(f"\nCreating coverage map from {len(isochrones_gdf)} isochrones...\n")
 
@@ -114,7 +188,7 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None):
         valid_mask = []
         for idx, geom in enumerate(fixed_gdf.geometry):
             if (idx + 1) % 1000 == 0:
-                print(f"    {idx + 1}/{len(fixed_gdf)}...")
+                print(f"    {idx + 1}/{len(fixed_gdf)}...", flush=True)
             fixed = fix_geometry(geom)
             if fixed is not None:
                 fixed_gdf.at[fixed_gdf.index[idx], 'geometry'] = fixed
@@ -126,66 +200,66 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None):
     gdf = _cached(cache_dir, 'step1_fixed', fix_all)
     print(f"  {len(gdf)} geometries validated\n")
 
-    # Steps 2-3: Planar graph from all boundary rings, then polygonize
-    def build_pieces():
-        print("Step 2: Building planar graph...")
-        all_rings = []
-        for geom in gdf.geometry:
-            if geom.geom_type == 'Polygon':
-                all_rings.append(geom.exterior)
-                all_rings.extend(geom.interiors)
-            elif geom.geom_type == 'MultiPolygon':
-                for poly in geom.geoms:
-                    all_rings.append(poly.exterior)
-                    all_rings.extend(poly.interiors)
+    # Step 2: Tiled planar subdivision + route dedup
+    tasks = make_tasks(gdf, tile_m)
+    tiles_dir = cache_dir / f"tiles_{tile_m}" if cache_dir else None
+    if tiles_dir:
+        tiles_dir.mkdir(exist_ok=True)
+    done = {}
+    if tiles_dir:
+        for t in tasks:
+            f = tiles_dir / f"{t[0]}.pkl"
+            if f.exists():
+                with open(f, 'rb') as fh:
+                    done[t[0]] = pickle.load(fh)
+    todo = [t for t in tasks if t[0] not in done]
+    print(f"Step 2: Subdividing {len(tasks)} tiles of {tile_m} m "
+          f"({len(done)} cached, {len(todo)} to do, {workers} workers)...", flush=True)
 
-        print(f"  {len(all_rings)} boundary rings")
-        print(f"  Merging boundaries (this may take a while)...", flush=True)
-        planar_graph = unary_union(all_rings)
+    start = datetime.now()
+    report_every = max(1, len(todo) // 40)
+    n = 0
+    queue = list(reversed(todo))
+    in_flight = []
+    with Pool(workers) as pool:
+        while queue or in_flight:
+            # Dispatch while there is a free worker slot and enough free RAM
+            while queue and len(in_flight) < workers:
+                if in_flight and free_gb() < MIN_FREE_GB:
+                    break  # let running tiles finish first
+                in_flight.append(pool.apply_async(process_tile, (queue.pop(),)))
+            # Collect whatever has finished
+            ready = [r for r in in_flight if r.ready()]
+            if not ready:
+                in_flight[0].wait(0.5)
+                continue
+            for r in ready:
+                in_flight.remove(r)
+                tile_id, result = r.get()
+                done[tile_id] = result
+                if tiles_dir:
+                    with open(tiles_dir / f"{tile_id}.pkl", 'wb') as fh:
+                        pickle.dump(result, fh, protocol=pickle.HIGHEST_PROTOCOL)
+                n += 1
+                if n % report_every == 0 or n == len(todo):
+                    el = (datetime.now() - start).total_seconds()
+                    print(f"    tile {n}/{len(todo)} — {el:.0f}s elapsed, "
+                          f"~{el / n * (len(todo) - n):.0f}s remaining, "
+                          f"{free_gb():.1f} GB RAM free", flush=True)
 
-        print("Step 3: Polygonizing...")
-        return list(polygonize(planar_graph))
-
-    pieces = _cached(cache_dir, 'step3_pieces', build_pieces)
-    print(f"  {len(pieces)} minimal polygons\n")
-
-    if not pieces:
+    rows = [r for result in done.values() for r in result]
+    if not rows:
         print("ERROR: No polygons created")
         return None
-
-    # Step 4: Deduplicate routes per piece
-    print("Step 4: Deduplicating routes per piece...")
-    pieces_gdf = gpd.GeoDataFrame(geometry=pieces, crs=crs_metric)
-
-    rep_points = pieces_gdf.geometry.representative_point()
-    rep_gdf = gpd.GeoDataFrame(
-        {'piece_idx': pieces_gdf.index},
-        geometry=rep_points,
-        crs=crs_metric
-    )
-
-    iso_cols = gdf[['geometry', 'route_trip_counts']].copy().reset_index(drop=True)
-    joined = gpd.sjoin(rep_gdf, iso_cols, how='left', predicate='within')
-    joined = joined.dropna(subset=['index_right'])
-
-    print("  Computing deduplicated trip counts...")
-    piece_stats = {}
-    for piece_idx, group in joined.groupby('piece_idx'):
-        unique_routes, deduped_trips = dedup_routes(group)
-        piece_stats[piece_idx] = (unique_routes, deduped_trips)
-
-    pieces_gdf['unique_routes'] = pieces_gdf.index.map(
-        lambda i: piece_stats.get(i, (0, 0))[0]
-    ).astype(int)
-    pieces_gdf['deduped_trips'] = pieces_gdf.index.map(
-        lambda i: piece_stats.get(i, (0, 0))[1]
-    ).astype(int)
-
-    pieces_gdf = pieces_gdf[pieces_gdf['unique_routes'] > 0].copy()
+    pieces_gdf = gpd.GeoDataFrame(
+        {'unique_routes': [r[1] for r in rows], 'deduped_trips': [r[2] for r in rows]},
+        geometry=shapely.set_precision([r[0] for r in rows], SNAP_M),
+        crs=crs_metric)
+    pieces_gdf = pieces_gdf[~pieces_gdf.geometry.is_empty]
     print(f"  {len(pieces_gdf)} pieces with coverage\n")
 
-    # Step 5: Dissolve adjacent pieces with the same deduped trip count
-    print("Step 5: Dissolving adjacent pieces...")
+    # Step 3: Dissolve adjacent pieces with the same deduped trip count
+    print("Step 3: Dissolving adjacent pieces...", flush=True)
     dissolved = pieces_gdf.dissolve(
         by='deduped_trips',
         aggfunc={'unique_routes': 'first'}
@@ -193,8 +267,8 @@ def create_coverage_map(isochrones_gdf, crs_metric: str, cache_dir=None):
     dissolved = dissolved.explode(index_parts=False).reset_index(drop=True)
     print(f"  {len(dissolved)} polygons after dissolve\n")
 
-    # Step 6: Cleanup
-    print("Step 6: Cleanup...")
+    # Step 4: Cleanup
+    print("Step 4: Cleanup...")
     dissolved['geometry'] = dissolved.geometry.apply(
         lambda g: make_valid(g.buffer(0)) if g is not None and not g.is_empty else None
     )
@@ -234,6 +308,9 @@ def main():
     add_city_argument(parser)
     parser.add_argument('--barriers', action='store_true',
                         help='Use barrier-aware isochrones (isochrones_barriers.gpkg)')
+    parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
+                        help=f'Parallel worker processes (default {DEFAULT_WORKERS})')
+    parser.add_argument('--tile', type=int, default=TILE_M, help=f'Tile size in m (default {TILE_M})')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
 
@@ -261,13 +338,13 @@ def main():
     isochrones = gpd.read_file(input_file)
     print(f"{len(isochrones)} loaded")
 
-    # Intermediate results are cached so an interrupted run resumes after the slow steps
+    # Intermediate results are cached so an interrupted run resumes where it stopped
     stat = input_file.stat()
     cache_dir = data_dir / f".cache_coverage{suffix}_{stat.st_size}_{int(stat.st_mtime)}"
     cache_dir.mkdir(exist_ok=True)
 
     start_time = datetime.now()
-    coverage = create_coverage_map(isochrones, crs_metric, cache_dir)
+    coverage = create_coverage_map(isochrones, crs_metric, cache_dir, args.workers, args.tile)
 
     if coverage is None or len(coverage) == 0:
         print("Failed to create coverage map!")
