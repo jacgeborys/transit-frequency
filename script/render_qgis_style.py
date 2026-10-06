@@ -49,7 +49,7 @@ BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
 
 
-def building_renderer(coverage_renderer):
+def building_renderer(coverage_renderer, shade=BUILDING_SHADE):
     """Copy of the coverage renderer on max_trips with opaque, slightly darker fills."""
     import copy
     r = copy.deepcopy(coverage_renderer)
@@ -60,7 +60,7 @@ def building_renderer(coverage_renderer):
         for cls, props in sym['layers']:
             if cls == 'SimpleFill':
                 c = [int(v) for v in props['color'].split(',')[:3]]
-                props['color'] = ','.join(str(int(v * BUILDING_SHADE)) for v in c) + ',255'
+                props['color'] = ','.join(str(int(v * shade)) for v in c) + ',255'
                 props['outline_style'] = 'no'
     return r
 
@@ -556,6 +556,10 @@ def main():
     parser.add_argument('--buildings', default=None,
                         help='buildings_<variant>.gpkg from 05_building_values.py: colour small '
                              'buildings by their best frequency, grey out big ones')
+    parser.add_argument('--coverage-fade', type=float, default=COVERAGE_FADE,
+                        help=f'With --buildings: area fill opacity factor (default {COVERAGE_FADE})')
+    parser.add_argument('--building-shade', type=float, default=BUILDING_SHADE,
+                        help=f'With --buildings: class colour multiplier on buildings (default {BUILDING_SHADE})')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -624,7 +628,7 @@ def main():
             rgba = unpremultiply_blur(rgba, radius_px / 2)
         rgba[..., 3] *= layer['opacity']
         if bld is not None and layer['path'] == coverage:
-            rgba[..., 3] *= COVERAGE_FADE
+            rgba[..., 3] *= args.coverage_fade
         if args.residents and layer['path'] == coverage:
             # Residents-only zones: same symbology, pale, only where public coverage is absent
             res_layer = dict(layer, path=Path(args.residents).resolve(), layername=None)
@@ -637,7 +641,7 @@ def main():
         del rgba
         if bld is not None and layer['path'] == coverage:
             # Buildings carry the colour: best frequency per small building, big ones grey
-            br = building_renderer(layer['renderer'])
+            br = building_renderer(layer['renderer'], args.building_shade)
             for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
                                   (bld[~bld['big'] & bld['residents_only']], RESIDENTS_ALPHA + 0.15)]:
                 if len(subset):
