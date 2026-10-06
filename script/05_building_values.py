@@ -25,23 +25,39 @@ from rasterio.transform import from_origin
 from cities import get_city, add_city_argument
 
 CELL_M = 3.0
+STRIP_M = 3000          # rasterize in 3 km strips to keep RAM low
 BIG_BUILDING_M2 = 5000
 EXCLUDED_BUILDING_TYPES = {'roof', 'carport', 'service'}  # as in the QGIS buildings layer
 
 
-def max_per_building(buildings, coverage, cell=CELL_M):
-    """MAX coverage deduped_trips touching each building (0 = not covered)."""
+def max_per_building(buildings, coverage, cell=CELL_M, strip_m=STRIP_M):
+    """
+    MAX coverage deduped_trips touching each building (0 = not covered).
+    Rasterizes in horizontal strips (spatial index per strip) to keep RAM low;
+    a building crossing a strip edge gets the max over both strips.
+    """
+    from shapely.geometry import box
     x0, y0, x1, y1 = coverage.total_bounds
     x0, y0, x1, y1 = x0 - cell, y0 - cell, x1 + cell, y1 + cell
-    w, h = int((x1 - x0) / cell) + 1, int((y1 - y0) / cell) + 1
-    transform = from_origin(x0, y1, cell, cell)
-    cov = rasterize(zip(coverage.geometry, coverage['deduped_trips'].astype('int32')),
-                    out_shape=(h, w), transform=transform, dtype='int32')
-    bid = rasterize(zip(buildings.geometry, np.arange(1, len(buildings) + 1, dtype='int32')),
-                    out_shape=(h, w), transform=transform, dtype='int32', all_touched=True)
+    w = int((x1 - x0) / cell) + 1
+    cov_geoms, cov_vals = coverage.geometry.values, coverage['deduped_trips'].to_numpy('int32')
+    b_geoms, b_ids = buildings.geometry.values, np.arange(1, len(buildings) + 1, dtype='int32')
+    cov_idx, b_idx = coverage.sindex, buildings.sindex
     out = np.zeros(len(buildings) + 1, dtype='int32')
-    mask = bid > 0
-    np.maximum.at(out, bid[mask], cov[mask])
+    for sy0 in np.arange(y0, y1, strip_m):
+        h = int(np.ceil(min(strip_m, y1 - sy0) / cell))
+        top = sy0 + h * cell
+        strip = box(x0, sy0, x1, top)
+        ci, bi = cov_idx.query(strip), b_idx.query(strip)
+        if len(ci) == 0 or len(bi) == 0:
+            continue
+        transform = from_origin(x0, top, cell, cell)
+        cov = rasterize(zip(cov_geoms[ci], cov_vals[ci]), out_shape=(h, w),
+                        transform=transform, dtype='int32')
+        bid = rasterize(zip(b_geoms[bi], b_ids[bi]), out_shape=(h, w),
+                        transform=transform, dtype='int32', all_touched=True)
+        mask = bid > 0
+        np.maximum.at(out, bid[mask], cov[mask])
     return out[1:]
 
 
