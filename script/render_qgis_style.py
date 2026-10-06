@@ -596,6 +596,15 @@ def main():
     tree = root.find('layer-tree-group')
     group = find_group(find_group(tree, 'Tlo'), city['qgis_group'])
     stack = [parse_layer(layers_by_id[i], project_dir) for i in visible_layer_ids(group)]
+    # Water always sits above the coverage colours (you can't walk on water);
+    # stack is top-most first, so move water layers just in front of the coverage
+    cov_pos = next((i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name), None)
+    if cov_pos is not None:
+        water = [l for l in stack[cov_pos + 1:] if l['path'].stem == 'water']
+        if water:
+            stack = [l for l in stack if l not in water]
+            cov_pos = next(i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name)
+            stack[cov_pos:cov_pos] = water
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
