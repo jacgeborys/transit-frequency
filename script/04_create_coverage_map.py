@@ -19,6 +19,7 @@ Usage:
     python 04_create_coverage_map.py --city warsaw [data_folder]
     python 04_create_coverage_map.py --city poznan
     python 04_create_coverage_map.py --city warsaw --barriers   # isochrones_barriers -> coverage_map_barriers
+    python 04_create_coverage_map.py --city krakow --variant gates_residents
     python 04_create_coverage_map.py --city warsaw --workers 4 --tile 1500
 """
 import argparse
@@ -307,7 +308,10 @@ def main():
     parser = argparse.ArgumentParser(description='Create coverage map')
     add_city_argument(parser)
     parser.add_argument('--barriers', action='store_true',
-                        help='Use barrier-aware isochrones (isochrones_barriers.gpkg)')
+                        help='Use barrier-aware isochrones (same as --variant barriers)')
+    parser.add_argument('--variant', default=None,
+                        help='Isochrone variant: reads isochrones_<variant>.gpkg, writes '
+                             'coverage_map_<variant>.gpkg (e.g. gates, gates_residents)')
     parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
                         help=f'Parallel worker processes (default {DEFAULT_WORKERS})')
     parser.add_argument('--tile', type=int, default=TILE_M, help=f'Tile size in m (default {TILE_M})')
@@ -316,7 +320,8 @@ def main():
 
     city = get_city(args.city)
     crs_metric = city['crs_metric']
-    suffix = "_barriers" if args.barriers else ""
+    variant = args.variant or ("barriers" if args.barriers else "")
+    suffix = f"_{variant}" if variant else ""
 
     data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city, suffix)
     input_file = data_dir / f"isochrones{suffix}.gpkg"

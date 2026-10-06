@@ -37,11 +37,12 @@ from shapely.geometry import Point, LineString
 from shapely.ops import unary_union
 from pyproj import Transformer
 from scipy.spatial import cKDTree
-from scipy.sparse import csr_matrix
+from scipy.sparse import csr_matrix, identity, bmat
 from scipy.sparse.csgraph import dijkstra
 from scipy.ndimage import distance_transform_edt, binary_dilation, label
 
 from cities import get_city, add_city_argument
+from access_rules import closed_gate_ids, private_way_ids
 
 WALKING_SPEED = 4.5   # km/h
 TIME_LIMIT = 5        # minutes
@@ -85,10 +86,11 @@ def load_network(city: dict):
     return None
 
 
-def convert_to_sparse(G, crs_metric: str):
+def convert_to_sparse(G, crs_metric: str, access=None):
     """
     Convert NetworkX graph to scipy sparse matrix + coordinate arrays.
-    Returns: (node_ids, KDTree, coords_metric, sparse_matrix, node_to_idx)
+    Returns: (node_ids, KDTree, coords_metric, sparse_matrix, node_to_idx, gate_net)
+    gate_net is None unless access = {'closed_gates': set, 'private_ways': set}.
     The NetworkX graph can be freed after this to save memory.
     """
     print("Converting graph to sparse matrix...", end=' ', flush=True)
@@ -107,12 +109,18 @@ def convert_to_sparse(G, crs_metric: str):
 
     # Build sparse adjacency matrix
     rows, cols, weights = [], [], []
+    private = []
     for u, v, data in G.edges(data=True):
         ui, vi = node_to_idx[u], node_to_idx[v]
         length = data.get('length', 0)
         rows.append(ui)
         cols.append(vi)
         weights.append(length)
+        if access is not None:
+            osmid = data.get('osmid')
+            way_ids = osmid if isinstance(osmid, list) else [osmid]
+            private.append(u in access['closed_gates'] or v in access['closed_gates']
+                           or any(_as_int(w) in access['private_ways'] for w in way_ids))
 
     sparse = csr_matrix((weights, (rows, cols)), shape=(n_nodes, n_nodes))
 
@@ -121,7 +129,59 @@ def convert_to_sparse(G, crs_metric: str):
     tree = cKDTree(lonlats)
 
     print(f"Done ({n_nodes:,} nodes, {len(rows):,} edges)")
-    return node_ids, tree, coords_metric, sparse, node_to_idx
+    if access is None:
+        return node_ids, tree, coords_metric, sparse, node_to_idx, None
+
+    # Public / private split for gate-aware routing
+    rows, cols, weights, private = map(np.asarray, (rows, cols, weights, private))
+    pub = ~private
+    sparse_public = csr_matrix((weights[pub], (rows[pub], cols[pub])), shape=(n_nodes, n_nodes))
+    sparse_private = csr_matrix((weights[private], (rows[private], cols[private])),
+                                shape=(n_nodes, n_nodes))
+    # Private nodes: no public edge touches them (estate interiors, closed gates)
+    has_public = (np.diff(sparse_public.indptr) > 0) | (np.bincount(
+        sparse_public.indices, minlength=n_nodes) > 0)
+    # Two-layer graph: public layer [0, N), residents layer [N, 2N).
+    # Public -> residents transitions everywhere (tiny cost), never back, and the
+    # residents layer only has private edges: residents can leave their estate
+    # to the public network, but nobody can cut through an estate.
+    eps = identity(n_nodes, format='csr') * 1e-3
+    two_layer = bmat([[sparse_public, eps], [None, sparse_private]], format='csr')
+    print(f"  Access: {private.sum():,} of {len(private):,} edges private "
+          f"({(~has_public).sum():,} private-only nodes)")
+    gate_net = {
+        'public': sparse_public,
+        'full': (sparse_public + sparse_private).tocsr(),
+        'two_layer': two_layer,
+        'private_node': ~has_public,
+        'public_tree': cKDTree(lonlats[has_public]),
+        'public_idx': np.where(has_public)[0],
+    }
+    return node_ids, tree, coords_metric, sparse, node_to_idx, gate_net
+
+
+def _as_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def reachable_two_layer(source_idx, stop_metric, coords_metric, gate_net, distance_m):
+    """
+    Gate-aware reach: (public nodes, residents-only nodes), or None.
+    Residents-only = private nodes reached only via private edges.
+    """
+    nx_m, ny_m = coords_metric[source_idx]
+    if ((stop_metric[0] - nx_m)**2 + (stop_metric[1] - ny_m)**2) ** 0.5 > 500:
+        return None
+    n = len(coords_metric)
+    dists = dijkstra(gate_net['two_layer'], directed=True, indices=source_idx, limit=distance_m)
+    pub = np.isfinite(dists[:n])
+    res = np.isfinite(dists[n:]) & gate_net['private_node'] & ~pub
+    if pub.sum() < 3:
+        return None
+    return np.where(pub)[0], np.where(res)[0]
 
 
 def reachable_nodes(source_idx, stop_metric, coords_metric, sparse, distance_m):
@@ -324,16 +384,23 @@ def main():
     parser.add_argument('--sample', type=int, default=None, help='Process only N stops (testing)')
     parser.add_argument('--barriers', action='store_true',
                         help='Block off-network spread with fences/walls and buildings')
+    parser.add_argument('--gates', action='store_true',
+                        help='With --barriers: closed gates / private ways are residents-only '
+                             '(outputs isochrones_gates + isochrones_gates_residents)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
 
     city = get_city(args.city)
     crs_metric = city['crs_metric']
+    if args.gates:
+        args.barriers = True
 
     data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
     input_file = data_dir / "stops_trip_count.csv"
-    suffix = ("_barriers" if args.barriers else "") + ("_sample" if args.sample else "")
+    variant = "_gates" if args.gates else "_barriers" if args.barriers else ""
+    suffix = variant + ("_sample" if args.sample else "")
     output_file = data_dir / f"isochrones{suffix}.gpkg"
+    residents_file = data_dir / f"isochrones{variant}_residents{suffix[len(variant):]}.gpkg"
 
     print("=" * 60)
     print(f"Isochrone Generator — {city['name']}")
@@ -342,7 +409,12 @@ def main():
     print(f"Output:  {output_file}")
     print(f"CRS:     {crs_metric}")
     print(f"Walking: {TIME_LIMIT} min / {DISTANCE_M:.0f} m at {WALKING_SPEED} km/h")
-    print(f"Mode:    {'fences/walls + buildings as barriers' if args.barriers else f'{BUFFER_M} m buffer'}\n")
+    mode = (f'{BUFFER_M} m buffer' if not args.barriers else
+            'fences/walls + buildings as barriers' + (' + gates (public / residents)' if args.gates else ''))
+    print(f"Mode:    {mode}")
+    if args.gates:
+        print(f"Residents output: {residents_file}")
+    print()
 
     if not input_file.exists():
         print(f"Input not found: {input_file}")
@@ -360,7 +432,15 @@ def main():
     if G is None:
         return
 
-    node_ids, tree, coords_metric, sparse, node_to_idx = convert_to_sparse(G, crs_metric)
+    access = None
+    if args.gates:
+        print("Loading access rules...", end=' ', flush=True)
+        access = {'closed_gates': closed_gate_ids(city['osm_dir'], crs_metric),
+                  'private_ways': private_way_ids(city['osm_dir'])}
+        print(f"{len(access['closed_gates']):,} closed gates, "
+              f"{len(access['private_ways']):,} private ways")
+    node_ids, tree, coords_metric, sparse, node_to_idx, gate_net = convert_to_sparse(
+        G, crs_metric, access)
 
     # Free NetworkX graph to reclaim ~1.5 GB
     del G
@@ -376,6 +456,8 @@ def main():
     params = f"{DISTANCE_M:.0f}_{BUFFER_M}"
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_PERMEABILITY_M}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
+    if args.gates:
+        params += "_g1"  # bump when access_rules change
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
@@ -397,15 +479,29 @@ def main():
         chunk_results, chunk_skipped = [], 0
         for _, stop in stops.iloc[chunk_start:chunk_start + CHECKPOINT_EVERY].iterrows():
             sx, sy = to_metric.transform(stop['stop_lon'], stop['stop_lat'])
-            _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
-
-            reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
-            if reachable is None:
-                polygon_metric = None
-            elif grid is not None:
-                polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
+            polygon_res = None
+            if gate_net is not None:
+                # Snap to the nearest public node (stops are on public streets)
+                _, k = gate_net['public_tree'].query([stop['stop_lon'], stop['stop_lat']])
+                reach = reachable_two_layer(gate_net['public_idx'][k], (sx, sy), coords_metric,
+                                            gate_net, DISTANCE_M)
+                if reach is None:
+                    polygon_metric = None
+                else:
+                    pub, res = reach
+                    polygon_metric = create_isochrone_barriers(pub, coords_metric,
+                                                               gate_net['public'], grid)
+                    polygon_res = polygon_metric if len(res) == 0 else create_isochrone_barriers(
+                        np.concatenate([pub, res]), coords_metric, gate_net['full'], grid)
             else:
-                polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
+                _, nn_idx = tree.query([stop['stop_lon'], stop['stop_lat']])
+                reachable = reachable_nodes(nn_idx, (sx, sy), coords_metric, sparse, DISTANCE_M)
+                if reachable is None:
+                    polygon_metric = None
+                elif grid is not None:
+                    polygon_metric = create_isochrone_barriers(reachable, coords_metric, sparse, grid)
+                else:
+                    polygon_metric = create_isochrone_buffer(reachable, coords_metric, sparse)
 
             if polygon_metric is not None and not polygon_metric.is_empty:
                 chunk_results.append({
@@ -422,6 +518,7 @@ def main():
                     'time_minutes': TIME_LIMIT,
                     'distance_m': DISTANCE_M,
                     'geometry': polygon_metric,
+                    'geometry_res': polygon_res,
                 })
             else:
                 chunk_skipped += 1
@@ -450,14 +547,22 @@ def main():
 
     print("Saving...", end=' ', flush=True)
     gdf = gpd.GeoDataFrame(results, crs=crs_metric)
+    res_geoms = gdf.pop('geometry_res')
     gdf['area_ha'] = gdf.geometry.area / 10000
-    gdf = gdf.to_crs("EPSG:4326")
-    gdf.to_file(output_file, driver="GPKG")
+    gdf.to_crs("EPSG:4326").to_file(output_file, driver="GPKG")
+    if args.gates:
+        gres = gdf.copy()
+        gres['geometry'] = gpd.GeoSeries(res_geoms.fillna(gdf.geometry), crs=crs_metric)
+        gres['area_ha'] = gres.geometry.area / 10000
+        gres.to_crs("EPSG:4326").to_file(residents_file, driver="GPKG")
     shutil.rmtree(partial_dir)  # checkpoints no longer needed
 
     print("Done")
     print(f"\n  Avg area: {gdf['area_ha'].mean():.1f} ha")
     print(f"  Saved to: {output_file}")
+    if args.gates:
+        print(f"  Residents avg area: {gres['area_ha'].mean():.1f} ha")
+        print(f"  Saved to: {residents_file}")
 
 
 if __name__ == "__main__":
