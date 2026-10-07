@@ -44,6 +44,8 @@ MM_TO_PT = 72 / 25.4
 RESIDENTS_ALPHA = 0.3          # residents-only zones: same class colour, this much opacity
 RESIDENTS_LABEL = 'tylko dla mieszkańców'
 LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
+GREEN_LAYERS = {'parks', 'forests', 'meadow', 'grass', 'leisure', 'leisure_relations',
+                'cemeteries', 'allotments'}
 
 # Building colouring (--buildings, from 05_building_values.py)
 COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
@@ -760,6 +762,9 @@ def main():
     parser.add_argument('--restricted-buildings', action='store_true',
                         help='With --buildings: paint buildings behind fences/closed gates like any '
                              'other (value from the residents coverage); their ground stays unpainted')
+    parser.add_argument('--green-rgb', default=None,
+                        help="Recolour parks/forests/grass etc. (fill RGB, alpha kept), "
+                             "e.g. '236,239,236' for a very light grey-green")
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -866,6 +871,14 @@ def main():
             stack = [l for l in stack if l not in water]
             cov_pos = next(i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name)
             stack[cov_pos:cov_pos] = water
+    if args.green_rgb:
+        for layer in stack:
+            if layer['path'].stem in GREEN_LAYERS:
+                for sym in layer['renderer']['symbols'].values():
+                    for cls, props in sym['layers']:
+                        if cls == 'SimpleFill' and 'color' in props:
+                            alpha = props['color'].split(',')[3]
+                            props['color'] = f"{args.green_rgb},{alpha}"
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
