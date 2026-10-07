@@ -93,6 +93,16 @@ PALETTES = {
     'spectral': ('Spectral_r', 0.0, 1.0),          # blue (low) -> red (high)
     'plasma': ('plasma', 0.0, 0.95),
     'gnuplot': ('gnuplot', 0.15, 1.0),
+    # Dark-rich scales, oriented light (low frequency) -> dark (high), like the QGIS ramp
+    'magma': ('magma_r', 0.02, 0.97),
+    'inferno': ('inferno_r', 0.02, 0.97),
+    'rocket': ('rocket_r', 0.0, 0.97),        # seaborn
+    'mako': ('mako_r', 0.0, 0.97),            # seaborn
+    'cmrmap': ('CMRmap_r', 0.08, 0.98),
+    'gnuplot2': ('gnuplot2_r', 0.10, 0.98),
+    'fire': ('cet_fire_r', 0.05, 0.97),       # colorcet
+    'bmy': ('cet_bmy_r', 0.0, 1.0),           # colorcet
+    'kbc': ('cet_kbc_r', 0.05, 0.97),         # colorcet
 }
 
 
@@ -101,6 +111,11 @@ def apply_palette(renderer, name):
     if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
         return
     cmap_name, a, b = PALETTES[name]
+    try:  # register extra colormaps (rocket/mako, cet_*) if those libraries are installed
+        import seaborn  # noqa: F401
+        import colorcet  # noqa: F401
+    except ImportError:
+        pass
     cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
         else plt.get_cmap(cmap_name)
     syms = [s for _, _, s, _, _ in renderer['ranges']]
