@@ -70,10 +70,12 @@ def building_renderer(coverage_renderer, shade=BUILDING_SHADE, saturation=BUILDI
     return r
 
 
-def big_building_renderer():
+def big_building_renderer(rgb=BIG_BUILDING_RGB):
+    if rgb.count(',') == 2:
+        rgb += ',255'
     return {'type': 'singleSymbol', 'attr': None, 'blur_mm': 0.0,
             'symbols': {'0': {'type': 'fill', 'alpha': 1.0, 'layers': [
-                ('SimpleFill', {'color': BIG_BUILDING_RGB, 'style': 'solid',
+                ('SimpleFill', {'color': rgb, 'style': 'solid',
                                 'outline_style': 'no'})]}}}
 
 
@@ -477,7 +479,7 @@ def legend_style(item, name):
             'marginTop': float(st.get('marginTop', 0)), 'marginLeft': float(st.get('marginLeft', 0))}
 
 
-def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False):
+def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0):
     """Single-column legend: layer title + one patch per renderer class."""
     box = float(item.get('boxSpace', 2))
     sw, sh = float(item.get('symbolWidth', 7)), float(item.get('symbolHeight', 4))
@@ -508,6 +510,7 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False):
     ref = int(item.get('referencePoint', 0))
     # Resize-to-contents keeps the reference point fixed
     ax_, ay_ = parse_mm(item.get('position'))
+    ax_ += shift_mm
     x = ax_ - width * (ref % 3) / 2
     y = ay_ - height * (ref // 3) / 2
     # A longer label (e.g. the residents row) must not push the legend off the page
@@ -569,6 +572,13 @@ def main():
                         help=f'With --buildings: saturation multiplier (default {BUILDING_SATURATION})')
     parser.add_argument('--big-rim', type=float, default=BIG_BUILDING_RIM_M,
                         help='With --buildings: coloured rim depth (m) on big buildings; 0 = plain grey')
+    parser.add_argument('--uncovered-rgb', default=None,
+                        help="With --buildings: solid colour for all non-coloured buildings, e.g. "
+                             "'64,64,64' (Schwarzplan look); default keeps the QGIS building style")
+    parser.add_argument('--extend-left-m', type=float, default=0,
+                        help='Widen the map to the left by this many metres (page grows, scale kept)')
+    parser.add_argument('--extend-right-m', type=float, default=0,
+                        help='Widen the map to the right by this many metres (page grows, scale kept)')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -596,6 +606,19 @@ def main():
     mx, my, mw, mh = item_rect(map_item)
     ext = map_item.find('Extent')
     extent = tuple(float(ext.get(k)) for k in ('xmin', 'ymin', 'xmax', 'ymax'))
+    label_shift = legend_shift = 0.0
+    if args.extend_left_m or args.extend_right_m:
+        mm_per_m = mw / (extent[2] - extent[0])
+        dl, dr = args.extend_left_m * mm_per_m, args.extend_right_m * mm_per_m
+        old_page_w = page_mm[0]
+        extent = (extent[0] - args.extend_left_m, extent[1], extent[2] + args.extend_right_m, extent[3])
+        mw += dl + dr
+        page_mm[0] += dl + dr
+        label_shift = (dl + dr) / 2  # centred labels stay centred
+        if legend_item is not None and parse_mm(legend_item.get('position'))[0] > old_page_w / 2:
+            legend_shift = dl + dr    # right-anchored legend follows the right edge
+        print(f"  widened by {args.extend_left_m:g} m left / {args.extend_right_m:g} m right "
+              f"(+{dl + dr:.1f} mm page width)")
     map_px = (int(round(mw / MM_PER_INCH * dpi)), int(round(mh / MM_PER_INCH * dpi)))
     print(f"Layout {city['qgis_layout']}: page {page_mm[0]}x{page_mm[1]} mm, "
           f"map {map_px[0]}x{map_px[1]} px at {dpi:g} dpi")
@@ -626,6 +649,8 @@ def main():
         styled_ids = set(bld['osm_id'].astype('int64'))
         print(f"  buildings: {(~bld['big']).sum():,} coloured, {bld['big'].sum():,} big (grey)")
 
+    uncovered_done = False
+
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
                               for k in ('red', 'green', 'blue', 'alpha')))
@@ -637,6 +662,14 @@ def main():
         gdf = load_layer_data(layer, extent, map_crs)
         if bld is not None and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
             gdf = gdf[~gdf['osm_id'].astype('int64').isin(styled_ids)]  # styled separately
+            if args.uncovered_rgb:
+                if uncovered_done:
+                    print("(skipped: Schwarzplan mode)")
+                    continue
+                uncovered_done = True
+                layer = dict(layer, renderer=big_building_renderer(args.uncovered_rgb),
+                             blend=0, opacity=1.0)
+                mode = 'normal'
         print(f"{len(gdf):>8,} features", flush=True)
         if gdf.empty:
             continue
@@ -669,7 +702,8 @@ def main():
                     del b_rgba
             big = bld[bld['big']]
             if len(big):
-                b_rgba = render_layer_rgba(big, big_building_renderer(), extent, map_px, dpi)
+                b_rgba = render_layer_rgba(big, big_building_renderer(args.uncovered_rgb or BIG_BUILDING_RGB),
+                                           extent, map_px, dpi)
                 blend(canvas, b_rgba, 'normal')
                 del b_rgba
                 # Accessible rim: the outer BIG_BUILDING_RIM_M of covered big buildings
@@ -704,6 +738,7 @@ def main():
         if 'stan na' in text:
             text = re.sub(r'stan na [0-9.]+', f'stan na {args.date}', text)
         x, y, w, h = item_rect(lab)
+        x += label_shift
         fam, size, style = label_font(lab)
         fig.text(*to_fig(x + w / 2, y + h / 2), text, ha='center', va='center',
                  fontproperties=font_props(fam, size, style))
@@ -715,7 +750,7 @@ def main():
         leg_layer['legend_title'] = leg_node.get('name')
         apply_palette(leg_layer['renderer'], args.palette)
         draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
-                    residents=bool(args.residents) and args.residents_legend)
+                    residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
