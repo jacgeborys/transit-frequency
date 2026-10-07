@@ -672,6 +672,9 @@ def main():
     bld = None
     if args.buildings:
         bld = gpd.read_file(args.buildings).to_crs(map_crs)
+        if not args.residents:
+            # Restricted areas switched off: residents-only buildings count as uncovered
+            bld = bld[~bld['residents_only'] | bld['big']]
         styled_ids = set(bld['osm_id'].astype('int64'))
         print(f"  buildings: {(~bld['big']).sum():,} coloured, {bld['big'].sum():,} big (grey)")
 
