@@ -173,7 +173,7 @@ def main():
     cache_dir = network_dir / "tile_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    tiles = create_tiles(bbox, n=4)
+    tiles = create_tiles(bbox, n=city.get('network_tiles', 4))  # big/dense cities: more tiles
     print(f"Downloading walking network in {len(tiles)} tiles...\n")
 
     start_time = datetime.now()

@@ -194,6 +194,7 @@ CITIES = {
         'vehicle_classify': _berlin_vehicle,
         'has_frequencies': True,
         'geofabrik': 'https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf',
+        'network_tiles': 8,  # dense 45 x 38 km area: keep Overpass requests small
     },
 }
 

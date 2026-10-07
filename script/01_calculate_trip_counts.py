@@ -181,7 +181,8 @@ def main():
                      '5': 'bus', '7': 'bus', '11': 'bus', '12': 'train',
                      '900': 'tram', '901': 'tram', '902': 'tram',
                      '100': 'train', '101': 'train', '102': 'train', '103': 'train',
-                     '109': 'train',
+                     '104': 'train', '105': 'train', '106': 'train', '107': 'train',
+                     '109': 'train', '1000': 'bus',  # 106 = VBB regional rail, 1000 = ferry
                      '400': 'metro', '401': 'metro', '402': 'metro',
                      '700': 'bus', '701': 'bus', '702': 'bus', '704': 'bus',
                      '800': 'bus'}
