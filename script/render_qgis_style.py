@@ -103,6 +103,16 @@ PALETTES = {
     'fire': ('cet_fire_r', 0.05, 0.97),       # colorcet
     'bmy': ('cet_bmy_r', 0.0, 1.0),           # colorcet
     'kbc': ('cet_kbc_r', 0.05, 0.97),         # colorcet
+    # CMasher (vivid, perceptually even), light -> dark
+    'chroma': ('cmr.chroma_r', 0.04, 0.95),
+    'rainforest': ('cmr.rainforest_r', 0.04, 0.95),
+    'torch': ('cmr.torch_r', 0.04, 0.95),
+    'ember': ('cmr.ember_r', 0.04, 0.95),
+    'sunburst': ('cmr.sunburst_r', 0.04, 0.95),
+    'flamingo': ('cmr.flamingo_r', 0.04, 0.95),
+    'voltage': ('cmr.voltage_r', 0.04, 0.95),
+    'neon': ('cmr.neon_r', 0.04, 0.95),
+    'tropical': ('cmr.tropical_r', 0.04, 0.95),
 }
 
 
@@ -114,6 +124,10 @@ def apply_palette(renderer, name):
     try:  # register extra colormaps (rocket/mako, cet_*) if those libraries are installed
         import seaborn  # noqa: F401
         import colorcet  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        import cmasher  # noqa: F401  (cmr.* colormaps)
     except ImportError:
         pass
     cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
