@@ -36,10 +36,12 @@ February OSMnx network (simplified, no private paths) is kept as
 `network/warsaw/walking_network_osmnx_2026_02.*.bak`. The Warsaw *baseline* map still
 uses the old network.
 
-**In progress / next:** building colouring (`05_building_values.py` + renderer
-`--buildings`: each small building gets the best frequency touching it, big buildings
-> 5,000 m² drawn plain grey to hide indoor corridors) — prototyped on Kraków.
-Palette choice open (current QGIS ramp vs `--palette turbo`).
+**Current product (2026-10-07):** `png/how_many_rides_in_5_mins[_krakow]_2026_10_07_gates_buildings.png`
+— gates variant, buildings coloured by their best frequency (`05_building_values.py`),
+big buildings (> 5,000 m²) show the coverage inside their footprint, restricted areas off.
+Style: QGIS palette, `--building-shade 0.80 --building-saturation 1.5 --coverage-fade 0.45
+--uncovered-rgb 170,170,170`, 150 dpi; Warsaw `--extend-left-m 1000 --extend-right-m 1000`.
+Older maps and previews moved to `png/archive/`.
 
 ## Architecture
 
@@ -63,7 +65,8 @@ _data/<city>/YYYY_MM_DD/                -- Merged GTFS directory
 05_building_values.py --variant V       -- (optional) best frequency per building
     v
 render_qgis_style.py                    -- Standalone re-implementation of the QGIS layouts
-      [--residents] [--buildings] [--palette]
+      [--residents] [--buildings] [--palette] [--crop lon,lat,w,h] [--extend-left/right-m]
+      (layer cache in cache/render/, rasterio drawing; a city renders in ~1-7 min)
 export_layout.py (QGIS python)          -- Exact export of the QGIS layout, project untouched
 compare_barriers.py                     -- buffer vs barrier stats + close-ups
 
@@ -75,8 +78,9 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
 
 - **baseline**: reachable network (375 m at 4.5 km/h) buffered by 50 m.
 - **`--barriers`**: same routing; the 50 m off-network spread is a 2 m raster cost-distance
-  where fences/walls/hedges are impassable and buildings can be entered 10 m but not
-  crossed. Small holes (< 200 m²) filled, fragments (< 50 m²) dropped.
+  where fences/walls/hedges are impassable and buildings are one-way space: entered like
+  open ground (same budget) but never exited, so they are never a shortcut.
+  Small holes (< 200 m²) filled, fragments (< 50 m²) dropped.
 - **`--gates`** (implies barriers): two-layer routing. Closed gates and private ways form a
   residents-only layer you can enter from public paths but never leave back into public
   space (no shortcuts through estates). Outputs `isochrones_gates` (public) and
