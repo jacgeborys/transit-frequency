@@ -757,6 +757,9 @@ def main():
                              "(no title/legend; loads only data inside the window)")
     parser.add_argument('--engine', default='rasterio', choices=['rasterio', 'matplotlib'],
                         help='Layer drawing engine (rasterio: fast; matplotlib: original)')
+    parser.add_argument('--restricted-buildings', action='store_true',
+                        help='With --buildings: paint buildings behind fences/closed gates like any '
+                             'other (value from the residents coverage); their ground stays unpainted')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -872,7 +875,7 @@ def main():
     bld = None
     if args.buildings:
         bld = read_cached(args.buildings, map_crs)
-        if not args.residents:
+        if not args.residents and not args.restricted_buildings:
             # Restricted areas switched off: residents-only buildings count as uncovered
             bld = bld[~bld['residents_only'] | bld['big']]
         styled_ids = set(bld['osm_id'].astype('int64'))
@@ -923,7 +926,8 @@ def main():
             # Buildings carry the colour: best frequency per small building, big ones grey
             br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)
             for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
-                                  (bld[~bld['big'] & bld['residents_only']], RESIDENTS_ALPHA + 0.15)]:
+                                  (bld[~bld['big'] & bld['residents_only']],
+                                   RESIDENTS_ALPHA + 0.15 if args.residents else 1.0)]:
                 if len(subset):
                     b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
                     b_rgba[..., 3] *= alpha
