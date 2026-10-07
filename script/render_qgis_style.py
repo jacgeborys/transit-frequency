@@ -621,7 +621,8 @@ def legend_style(item, name):
             'marginTop': float(st.get('marginTop', 0)), 'marginLeft': float(st.get('marginLeft', 0))}
 
 
-def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0):
+def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0,
+                shift_y_mm=0.0):
     """Single-column legend: layer title + one patch per renderer class."""
     box = float(item.get('boxSpace', 2))
     sw, sh = float(item.get('symbolWidth', 7)), float(item.get('symbolHeight', 4))
@@ -653,6 +654,7 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     # Resize-to-contents keeps the reference point fixed
     ax_, ay_ = parse_mm(item.get('position'))
     ax_ += shift_mm
+    ay_ += shift_y_mm
     x = ax_ - width * (ref % 3) / 2
     y = ay_ - height * (ref // 3) / 2
     # A longer label (e.g. the residents row) must not push the legend off the page
@@ -735,13 +737,19 @@ def main():
     register_fonts()
     root = load_project(Path(args.project))
     project_dir = Path(args.project).resolve().parent
-    layout = [l for l in root.iter('Layout') if l.get('name') == city['qgis_layout']][0]
+    # Cities without their own QGIS layout borrow a template city's layout and styles
+    tmpl = city if 'qgis_layout' in city else get_city(city.get('template', 'krakow'))
+    if tmpl is not city:
+        print(f"  no QGIS layout for {city['name']}: using {tmpl['name']} layout as template")
+    layout = [l for l in root.iter('Layout') if l.get('name') == tmpl['qgis_layout']][0]
     dpi = args.dpi or float(layout.get('printResolution', 300))
     map_crs = 'EPSG:2180'
     for crs_el in root.iter('projectCrs'):
         a = crs_el.find('spatialrefsys/authid')
         if a is not None and a.text:
             map_crs = a.text
+    if tmpl is not city:
+        map_crs = city['crs_metric']
 
     items = {it.get('type'): [] for it in layout.iter('LayoutItem')}
     for it in layout.iter('LayoutItem'):
@@ -756,6 +764,25 @@ def main():
     ext = map_item.find('Extent')
     extent = tuple(float(ext.get(k)) for k in ('xmin', 'ymin', 'xmax', 'ymax'))
     label_shift = legend_shift = 0.0
+    label_dy = legend_dy = 0.0   # vertical shifts for bottom-anchored items (template mode)
+    old_page_h = page_mm[1]
+    if tmpl is not city:
+        mm_per_m = mw / (extent[2] - extent[0])
+        b = city['bbox']
+        extent = Transformer.from_crs('EPSG:4326', map_crs, always_xy=True).transform_bounds(
+            b['west'], b['south'], b['east'], b['north'])
+        right, bottom = page_mm[0] - (mx + mw), page_mm[1] - (my + mh)
+        old_w = page_mm[0]
+        mw, mh = (extent[2] - extent[0]) * mm_per_m, (extent[3] - extent[1]) * mm_per_m
+        page_mm = [mx + mw + right, my + mh + bottom]
+        dw, dh = page_mm[0] - old_w, page_mm[1] - old_page_h
+        label_shift, label_dy = dw / 2, dh
+        if legend_item is not None:
+            lx, ly = parse_mm(legend_item.get('position'))
+            legend_shift = dw if lx > old_w / 2 else 0.0
+            legend_dy = dh if ly > old_page_h / 2 else 0.0
+        print(f"  template frame: {(extent[2]-extent[0])/1000:.1f} x {(extent[3]-extent[1])/1000:.1f} km, "
+              f"page {page_mm[0]:.0f} x {page_mm[1]:.0f} mm")
     if args.extend_left_m or args.extend_right_m:
         mm_per_m = mw / (extent[2] - extent[0])
         dl, dr = args.extend_left_m * mm_per_m, args.extend_right_m * mm_per_m
@@ -784,8 +811,20 @@ def main():
     # Layer stack
     layers_by_id = {ml.find('id').text: ml for ml in root.iter('maplayer')}
     tree = root.find('layer-tree-group')
-    group = find_group(find_group(tree, 'Tlo'), city['qgis_group'])
+    group = find_group(find_group(tree, 'Tlo'), tmpl['qgis_group'])
     stack = [parse_layer(layers_by_id[i], project_dir) for i in visible_layer_ids(group)]
+    if tmpl is not city:
+        kept = []
+        for layer in stack:
+            if 'coverage_map' in layer['path'].name:
+                kept.append(layer)
+                continue
+            new_path = city['osm_dir'] / layer['path'].name
+            if new_path.exists():
+                kept.append(dict(layer, path=new_path))
+            else:
+                print(f"  (template layer {layer['name']}: {new_path.name} missing for {city['name']}, skipped)")
+        stack = kept
     # Water always sits above the coverage colours (you can't walk on water);
     # stack is top-most first, so move water layers just in front of the coverage
     cov_pos = next((i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name), None)
@@ -902,6 +941,8 @@ def main():
             text = re.sub(r'stan na [0-9.]+', f'stan na {args.date}', text)
         x, y, w, h = item_rect(lab)
         x += label_shift
+        if y > old_page_h / 2:
+            y += label_dy
         fam, size, style = label_font(lab)
         fig.text(*to_fig(x + w / 2, y + h / 2), text, ha='center', va='center',
                  fontproperties=font_props(fam, size, style))
@@ -913,7 +954,8 @@ def main():
         leg_layer['legend_title'] = leg_node.get('name')
         apply_palette(leg_layer['renderer'], args.palette)
         draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
-                    residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift)
+                    residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
+                    shift_y_mm=legend_dy)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
