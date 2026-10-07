@@ -48,7 +48,7 @@ COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry t
 BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
 BUILDING_SATURATION = 1.0      # saturation multiplier for building colours
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
-BIG_BUILDING_RIM_M = 20        # covered big buildings show an accessible rim this deep
+BIG_BUILDING_RIM_M = 0         # >0: covered big buildings show an accessible rim this deep
 
 
 def building_renderer(coverage_renderer, shade=BUILDING_SHADE, saturation=BUILDING_SATURATION):
@@ -567,6 +567,8 @@ def main():
                         help=f'With --buildings: class colour multiplier on buildings (default {BUILDING_SHADE})')
     parser.add_argument('--building-saturation', type=float, default=BUILDING_SATURATION,
                         help=f'With --buildings: saturation multiplier (default {BUILDING_SATURATION})')
+    parser.add_argument('--big-rim', type=float, default=BIG_BUILDING_RIM_M,
+                        help='With --buildings: coloured rim depth (m) on big buildings; 0 = plain grey')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -671,8 +673,8 @@ def main():
                 blend(canvas, b_rgba, 'normal')
                 del b_rgba
                 # Accessible rim: the outer BIG_BUILDING_RIM_M of covered big buildings
-                rim = big[big['max_trips'] > 0].copy()
-                rim['geometry'] = rim.geometry.difference(rim.geometry.buffer(-BIG_BUILDING_RIM_M))
+                rim = big[big['max_trips'] > 0].copy() if args.big_rim > 0 else big.iloc[0:0]
+                rim['geometry'] = rim.geometry.difference(rim.geometry.buffer(-args.big_rim))
                 rim = rim[~rim.geometry.is_empty]
                 for subset, alpha in [(rim[~rim['residents_only']], 1.0),
                                       (rim[rim['residents_only']], RESIDENTS_ALPHA + 0.15)]:
