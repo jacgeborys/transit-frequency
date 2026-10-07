@@ -126,7 +126,9 @@ def process_tile(task):
         return tile_id, []
 
     rings = [r for c, _ in clipped for r in _rings(c)]
-    pieces = list(polygonize(unary_union(rings)))
+    # Fixed-precision noding (snap to SNAP_M): plain floating-point noding can miss
+    # crossings between near-collinear edges, so faces fail to close and area vanishes
+    pieces = list(polygonize(shapely.union_all(rings, grid_size=SNAP_M)))
     if not pieces:
         return tile_id, []
 
@@ -163,14 +165,20 @@ def _coverage_union(geoms):
     if len(geoms) == 1:
         return geoms[0]
     try:
-        return shapely.coverage_union_all(geoms)
+        merged = shapely.coverage_union_all(geoms)
+        # Fast path assumes a perfectly noded coverage; if the result is invalid it can
+        # silently corrupt the later cross-tile union, so fall back to the robust union
+        if merged.is_valid:
+            return merged
     except Exception:
-        return unary_union(geoms)
+        pass
+    return unary_union(geoms)
 
 
 def dissolve_group(task):
     """Final cross-tile dissolve of one trip value (runs in a worker)."""
     trips, routes, geoms = task
+    geoms = [g if g.is_valid else make_valid(g) for g in geoms]  # one bad piece corrupts the union
     return trips, routes, unary_union(geoms)
 
 
