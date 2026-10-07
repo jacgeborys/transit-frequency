@@ -411,6 +411,12 @@ def render_layer_rgba(gdf, renderer, extent, size_px, dpi):
     fig.canvas.draw()
     rgba = np.asarray(fig.canvas.buffer_rgba(), dtype=np.float32) / 255.0
     plt.close(fig)
+    # Float rounding of the figure size can be off by a pixel: match the canvas exactly
+    if rgba.shape[:2] != (h, w):
+        fixed = np.zeros((h, w, 4), dtype=np.float32)
+        hh, ww = min(h, rgba.shape[0]), min(w, rgba.shape[1])
+        fixed[:hh, :ww] = rgba[:hh, :ww]
+        rgba = fixed
     return rgba
 
 
