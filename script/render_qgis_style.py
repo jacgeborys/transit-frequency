@@ -17,6 +17,7 @@ Usage:
     For a 1:1 QGIS export use export_layout.py instead (needs QGIS installed).
 """
 import argparse
+import pickle
 import re
 import zipfile
 import xml.etree.ElementTree as ET
@@ -269,7 +270,56 @@ def load_layer_data(layer, extent, map_crs):
     return _CACHE[key]
 
 
+CACHE_DIR = PROJECT_DIR / 'cache' / 'render'
+
+
+def _cache_file(path, *parts):
+    """Cache file for a source dataset; the key includes its size and mtime."""
+    import hashlib
+    st = Path(path).stat()
+    key = '|'.join(str(p) for p in (Path(path).resolve(), st.st_size, int(st.st_mtime), *parts))
+    return CACHE_DIR / f"{Path(path).stem}_{hashlib.md5(key.encode()).hexdigest()[:12]}.pkl"
+
+
+def read_cached(path, map_crs, layername=None, prepare=None, label=''):
+    """Whole dataset in map_crs, from the disk cache when the source is unchanged."""
+    f = _cache_file(path, layername, map_crs, label)
+    if f.exists():
+        with open(f, 'rb') as fh:
+            return pickle.load(fh)
+    gdf = gpd.read_file(path, layer=layername)
+    if prepare is not None:
+        gdf = prepare(gdf)
+    if not gdf.empty:
+        gdf = gdf.to_crs(map_crs)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(f, 'wb') as fh:
+        pickle.dump(gdf, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    return gdf
+
+
 def _load_layer_data(layer, extent, map_crs):
+    def prepare(gdf):
+        if gdf.empty:
+            return gdf
+        if layer['subset']:
+            gdf = gdf.query(subset_to_query(layer['subset']))
+        if layer['geometrytype']:
+            base = layer['geometrytype'].replace('Multi', '')
+            gdf = gdf[gdf.geom_type.str.replace('Multi', '') == base]
+        if gdf.crs is None:
+            gdf = gdf.set_crs(layer['crs'])
+        return gdf
+
+    gdf = read_cached(layer['path'], map_crs, layer['layername'], prepare,
+                      label=f"{layer['subset']}|{layer['geometrytype']}")
+    if gdf.empty:
+        return gdf
+    x0, y0, x1, y1 = extent
+    return gdf.cx[x0:x1, y0:y1]
+
+
+def _load_layer_data_uncached(layer, extent, map_crs):
     to_layer = Transformer.from_crs(map_crs, layer['crs'], always_xy=True)
     bbox = to_layer.transform_bounds(*extent)
     gdf = gpd.read_file(layer['path'], layer=layer['layername'], bbox=bbox)
@@ -383,7 +433,85 @@ def draw_symbol(ax, geoms, symbol, px_scale):
             print(f"    (symbol layer {cls} not supported, skipped)")
 
 
+SUPERSAMPLE = 2    # rasterize at 2x and average down: smooth (anti-aliased) edges
+ENGINE = 'rasterio'
+
+
+def _composite_over(layer, frac, rgba):
+    """Straight-alpha 'over' of a solid colour with per-pixel coverage frac onto layer (H,W,4)."""
+    a = frac * rgba[3]
+    if not a.any():
+        return
+    A = layer[..., 3]
+    out_a = a + A * (1 - a)
+    nz = out_a > 0
+    for c in range(3):
+        layer[..., c][nz] = (rgba[c] * a[nz] + layer[..., c][nz] * A[nz] * (1 - a[nz])) / out_a[nz]
+    layer[..., 3] = out_a
+
+
 def render_layer_rgba(gdf, renderer, extent, size_px, dpi):
+    """Render one layer -> float32 RGBA (H, W, 4), straight alpha (rasterio engine)."""
+    if ENGINE == 'matplotlib':
+        return render_layer_rgba_mpl(gdf, renderer, extent, size_px, dpi)
+    from affine import Affine
+    from rasterio.features import rasterize
+    w, h = size_px
+    ss = SUPERSAMPLE
+    W, H = w * ss, h * ss
+    x0, y0, x1, y1 = extent
+    transform = Affine((x1 - x0) / W, 0, x0, 0, -(y1 - y0) / H, y1)
+    m_per_mm = (x1 - x0) / W * (dpi * ss / MM_PER_INCH)  # map metres per printed mm
+    layer = np.zeros((h, w, 4), dtype=np.float32)
+
+    def coverage(geoms):
+        geoms = [g for g in geoms if g is not None and not g.is_empty]
+        if not geoms:
+            return None
+        mask = rasterize(((g, 1) for g in geoms), out_shape=(H, W), transform=transform,
+                         dtype='uint8')
+        return mask.reshape(h, ss, w, ss).mean(axis=(1, 3), dtype=np.float32)
+
+    syms = assign_symbols(gdf, renderer)
+    if renderer['type'] == 'categorizedSymbol':
+        order = [s for _, s, _, _ in renderer['categories']]
+    elif renderer['type'] == 'graduatedSymbol':
+        order = [s for _, _, s, _, _ in renderer['ranges']]
+    else:
+        order = ['0']
+    geoms_all = gdf.geometry.to_numpy()
+    is_poly = np.isin(gdf.geom_type.to_numpy(), ['Polygon', 'MultiPolygon'])
+    for sname in order:
+        m = syms == sname
+        if not m.any():
+            continue
+        sym = renderer['symbols'][sname]
+        geoms, polys = geoms_all[m], geoms_all[m & is_poly]
+        for cls, p in sym['layers']:
+            if cls == 'SimpleFill':
+                if p.get('style', 'solid') != 'no' and len(polys):
+                    f = coverage(polys)
+                    if f is not None:
+                        _composite_over(layer, f, with_alpha(parse_color(p['color']), sym['alpha']))
+                if p.get('outline_style', 'solid') != 'no' and len(polys):
+                    half = float(p.get('outline_width', 0.26)) * m_per_mm / 2
+                    f = coverage(shapely.buffer(shapely.boundary(polys), half))
+                    if f is not None:
+                        _composite_over(layer, f, with_alpha(parse_color(p['outline_color']), sym['alpha']))
+            elif cls == 'SimpleLine':
+                if p.get('line_style', 'solid') == 'no':
+                    continue
+                lines = np.where(np.isin(gdf.geom_type.to_numpy()[m], ['Polygon', 'MultiPolygon']),
+                                 shapely.boundary(geoms), geoms)
+                half = float(p.get('line_width', 0.26)) * m_per_mm / 2
+                cap = {'square': 'square', 'flat': 'flat', 'round': 'round'}.get(p.get('capstyle'), 'square')
+                f = coverage(shapely.buffer(lines, half, cap_style=cap, join_style='bevel'))
+                if f is not None:
+                    _composite_over(layer, f, with_alpha(parse_color(p['line_color']), sym['alpha']))
+    return layer
+
+
+def render_layer_rgba_mpl(gdf, renderer, extent, size_px, dpi):
     """Render one layer onto a transparent canvas -> float32 RGBA (H, W, 4), straight alpha."""
     w, h = size_px
     fig = plt.figure(figsize=(w / dpi, h / dpi), dpi=dpi)
@@ -596,10 +724,14 @@ def main():
     parser.add_argument('--crop', default=None,
                         help="Quick preview of a window only: 'lon,lat,width_m,height_m' "
                              "(no title/legend; loads only data inside the window)")
+    parser.add_argument('--engine', default='rasterio', choices=['rasterio', 'matplotlib'],
+                        help='Layer drawing engine (rasterio: fast; matplotlib: original)')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
     city = get_city(args.city)
+    global ENGINE
+    ENGINE = args.engine
     register_fonts()
     root = load_project(Path(args.project))
     project_dir = Path(args.project).resolve().parent
@@ -671,7 +803,7 @@ def main():
 
     bld = None
     if args.buildings:
-        bld = gpd.read_file(args.buildings).to_crs(map_crs)
+        bld = read_cached(args.buildings, map_crs)
         if not args.residents:
             # Restricted areas switched off: residents-only buildings count as uncovered
             bld = bld[~bld['residents_only'] | bld['big']]
