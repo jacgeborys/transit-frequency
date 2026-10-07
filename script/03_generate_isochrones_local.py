@@ -9,7 +9,7 @@ Usage:
 
     --sample N   Process only the first N stops (for testing)
     --barriers   Off-network spread respects fences/walls (impassable) and
-                 buildings (enterable up to 10 m, never crossed).
+                 buildings (enterable like open space, never crossed or exited).
                  Output: isochrones_barriers.gpkg
     data_folder  Explicit path (default: most recent in _data/<city>/)
 
@@ -51,7 +51,7 @@ BUFFER_M = 50         # buffer around nodes and edges
 
 # Barrier mode
 CELL_M = 2.0                      # raster resolution
-BUILDING_PERMEABILITY_M = 10      # how far into a building the isochrone reaches
+BUILDING_RULE = 'oneway'          # buildings: enterable like open space, never exited
 EXCLUDED_BUILDING_TYPES = {'roof', 'carport'}  # open structures, walkable underneath
 MIN_HOLE_M2 = 200                 # enclosed holes smaller than this are filled
 MIN_PART_M2 = 50                  # detached fragments smaller than this are dropped
@@ -299,7 +299,7 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
     """
     Barrier-aware isochrone: spread BUFFER_M off the reachable network, but
     fences/walls and buildings block the spread. Buildings are then filled
-    in up to BUILDING_PERMEABILITY_M from the reached area (accessible but
+    in like open space but never exited again (accessible but
     not passable).
     """
     from rasterio.features import rasterize, shapes
@@ -331,11 +331,17 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
                                              max_cumulative_cost=max_cells)
     reached = cum <= max_cells
 
-    # Buildings: accessible from the reached area, up to N metres deep
+    # Buildings are one-way space: the walk spreads inside them like open ground
+    # (same budget), but can't come back out, so a building is never a shortcut.
+    # Outside cells come only from the run above (buildings impassable); building
+    # cells from a second run where buildings are passable.
     building = win == BUILDING
     if building.any():
-        depth = distance_transform_edt(~reached) * CELL_M
-        reached |= building & (depth <= BUILDING_PERMEABILITY_M)
+        costs_in = np.where(win == BARRIER, np.inf, 1.0)
+        costs_in[seeds] = 1.0
+        cum_in, _ = MCP_Geometric(costs_in).find_costs(np.argwhere(seeds),
+                                                       max_cumulative_cost=max_cells)
+        reached |= building & (cum_in <= max_cells)
 
     # Fence cells bordering the reached area count as reached, so a fence
     # crossing open ground doesn't cut a 2 m slit (it still blocked the spread)
@@ -562,7 +568,7 @@ def main():
     # parameters so a change in settings never reuses stale chunks
     params = f"{DISTANCE_M:.0f}_{BUFFER_M}"
     if args.barriers:
-        params += f"_c{CELL_M:g}_b{BUILDING_PERMEABILITY_M}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
+        params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
         params += "_g1"  # bump when access_rules change
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"

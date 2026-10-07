@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
+import shapely
 import geopandas as gpd
 import matplotlib
 matplotlib.use('Agg')
@@ -84,6 +85,13 @@ def big_building_renderer(rgb=BIG_BUILDING_RGB):
 PALETTES = {
     'turbo': ('turbo', 0.0, 1.0),
     'turbo_light': ('turbo', 0.3, 1.0),   # skip turbo's dark blue start: low = light green
+    'jet': ('jet', 0.0, 1.0),
+    'rainbow': ('rainbow', 0.0, 1.0),
+    'nipy_spectral': ('nipy_spectral', 0.08, 0.95),
+    'gist_rainbow': ('gist_rainbow_r', 0.0, 1.0),  # magenta (low) -> red (high)
+    'spectral': ('Spectral_r', 0.0, 1.0),          # blue (low) -> red (high)
+    'plasma': ('plasma', 0.0, 0.95),
+    'gnuplot': ('gnuplot', 0.15, 1.0),
 }
 
 
@@ -579,6 +587,9 @@ def main():
                         help='Widen the map to the left by this many metres (page grows, scale kept)')
     parser.add_argument('--extend-right-m', type=float, default=0,
                         help='Widen the map to the right by this many metres (page grows, scale kept)')
+    parser.add_argument('--crop', default=None,
+                        help="Quick preview of a window only: 'lon,lat,width_m,height_m' "
+                             "(no title/legend; loads only data inside the window)")
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -619,6 +630,15 @@ def main():
             legend_shift = dl + dr    # right-anchored legend follows the right edge
         print(f"  widened by {args.extend_left_m:g} m left / {args.extend_right_m:g} m right "
               f"(+{dl + dr:.1f} mm page width)")
+    if args.crop:
+        lon, lat, cw, ch = (float(v) for v in args.crop.split(','))
+        cx, cy = Transformer.from_crs('EPSG:4326', map_crs, always_xy=True).transform(lon, lat)
+        mm_per_m = mw / (extent[2] - extent[0])  # keep the layout's scale
+        extent = (cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2)
+        mx, my, mw, mh = 0.0, 0.0, cw * mm_per_m, ch * mm_per_m
+        page_mm = [mw, mh]
+        labels, legend_item = [], None
+        print(f"  crop preview: {cw:g} x {ch:g} m around {lat:.4f}, {lon:.4f}")
     map_px = (int(round(mw / MM_PER_INCH * dpi)), int(round(mh / MM_PER_INCH * dpi)))
     print(f"Layout {city['qgis_layout']}: page {page_mm[0]}x{page_mm[1]} mm, "
           f"map {map_px[0]}x{map_px[1]} px at {dpi:g} dpi")
@@ -702,21 +722,23 @@ def main():
                     del b_rgba
             big = bld[bld['big']]
             if len(big):
+                # Base: the uncovered building colour
                 b_rgba = render_layer_rgba(big, big_building_renderer(args.uncovered_rgb or BIG_BUILDING_RGB),
                                            extent, map_px, dpi)
                 blend(canvas, b_rgba, 'normal')
                 del b_rgba
-                # Accessible rim: the outer BIG_BUILDING_RIM_M of covered big buildings
-                rim = big[big['max_trips'] > 0].copy() if args.big_rim > 0 else big.iloc[0:0]
-                rim['geometry'] = rim.geometry.difference(rim.geometry.buffer(-args.big_rim))
-                rim = rim[~rim.geometry.is_empty]
-                for subset, alpha in [(rim[~rim['residents_only']], 1.0),
-                                      (rim[rim['residents_only']], RESIDENTS_ALPHA + 0.15)]:
-                    if len(subset):
-                        b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
-                        b_rgba[..., 3] *= alpha
-                        blend(canvas, b_rgba, 'normal')
-                        del b_rgba
+                # The isochrones enter big buildings (10 m, plus indoor walkways) but never
+                # cross them: show that actual coverage inside the footprint, building-strength
+                bi, ci = gdf.sindex.query(big.geometry, predicate='intersects')
+                if len(bi):
+                    inside = gpd.GeoDataFrame(
+                        {'max_trips': gdf['deduped_trips'].to_numpy()[ci]},
+                        geometry=shapely.intersection(gdf.geometry.to_numpy()[ci], big.geometry.to_numpy()[bi]),
+                        crs=gdf.crs)
+                    inside = inside[~inside.geometry.is_empty]
+                    b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
+                    blend(canvas, b_rgba, 'normal')
+                    del b_rgba
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
