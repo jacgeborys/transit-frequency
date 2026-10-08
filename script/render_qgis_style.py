@@ -116,6 +116,25 @@ PALETTES = {
     'voltage': ('cmr.voltage_r', 0.04, 0.95),
     'neon': ('cmr.neon_r', 0.04, 0.95),
     'tropical': ('cmr.tropical_r', 0.04, 0.95),
+    # Dark mode: dim (low frequency) -> bright / glowing (high); start above pure black
+    'magma_dark': ('magma', 0.18, 1.0),
+    'inferno_dark': ('inferno', 0.15, 0.98),
+    'plasma_dark': ('plasma', 0.0, 0.97),
+    'mako_dark': ('mako', 0.2, 1.0),
+    'chroma_dark': ('cmr.chroma', 0.12, 0.97),
+    'ember_dark': ('cmr.ember', 0.15, 1.0),
+    'neon_dark': ('cmr.neon', 0.12, 1.0),
+    'voltage_dark': ('cmr.voltage', 0.15, 1.0),
+    'flamingo_dark': ('cmr.flamingo', 0.15, 1.0),
+    'torch_dark': ('cmr.torch', 0.15, 1.0),
+    'bmy_dark': ('cet_bmy', 0.0, 1.0),
+    'fire_dark': ('cet_fire', 0.2, 1.0),
+    'turbo_dark': ('turbo', 0.05, 0.9),
+    # Custom ramps (lists of hex colours, low -> high)
+    'synthwave': (['#24135f', '#5b2a86', '#b0279b', '#f2368e', '#ff7a5c', '#ffd166', '#fff4c2'], 0.0, 1.0),
+    'aurora': (['#0d2b45', '#145c6e', '#1b9a8a', '#5fd38d', '#c6f16b', '#fbffb0'], 0.0, 1.0),
+    'cyberpunk': (['#1b1446', '#2d39a6', '#00a6d6', '#00f5d4', '#f9f871', '#ff4fd8', '#ffffff'], 0.0, 1.0),
+    'lava': (['#2a0a12', '#6b0f1a', '#b31b1b', '#e8471a', '#ff9e1b', '#ffe066', '#fffbe0'], 0.0, 1.0),
 }
 
 
@@ -133,8 +152,12 @@ def apply_palette(renderer, name):
         import cmasher  # noqa: F401  (cmr.* colormaps)
     except ImportError:
         pass
-    cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
-        else plt.get_cmap(cmap_name)
+    if isinstance(cmap_name, list):
+        from matplotlib.colors import LinearSegmentedColormap
+        cmap = LinearSegmentedColormap.from_list(name, cmap_name)
+    else:
+        cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
+            else plt.get_cmap(cmap_name)
     syms = [s for _, _, s, _, _ in renderer['ranges']]
     for k, sym_name in enumerate(syms):
         r, g, bl, _ = cmap(a + (b - a) * k / max(1, len(syms) - 1))
@@ -813,6 +836,10 @@ def main():
                              "e.g. '236,239,236' for a very light grey-green")
     parser.add_argument('--forest-rgb', default=None,
                         help="Forests only (after --green-rgb), e.g. a touch darker than the other greens")
+    parser.add_argument('--recolor', action='append', default=[], metavar='LAYER=R,G,B',
+                        help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
+                             "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
+    parser.add_argument('--road-edge-rgb', default='255,255,255', help='Colour of --road-edge-mm lines')
     parser.add_argument('--bg-rgb', default=None,
                         help="Map background (land) RGB instead of the layout's, e.g. '240,240,240'")
     parser.add_argument('--road-edge-mm', type=float, default=0,
@@ -934,6 +961,15 @@ def main():
                         if cls == 'SimpleFill' and 'color' in props:
                             alpha = props['color'].split(',')[3]
                             props['color'] = f"{rgb},{alpha}"
+    for spec in args.recolor:
+        stem, rgb = spec.split('=')
+        for layer in stack:
+            if layer['path'].stem == stem:
+                for sym in layer['renderer']['symbols'].values():
+                    for cls, props in sym['layers']:
+                        for key in ('color', 'outline_color', 'line_color'):
+                            if key in props and props[key]:
+                                props[key] = f"{rgb},{props[key].split(',')[3]}"
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
@@ -997,7 +1033,9 @@ def main():
         del rgba
         if args.road_edge_mm > 0 and layer['path'].stem == 'roads':
             blend(canvas, road_edges_rgba(gdf, layer['renderer'], extent, map_px, dpi,
-                                          args.road_edge_mm), 'normal')
+                                          args.road_edge_mm,
+                                          tuple(int(v) / 255 for v in args.road_edge_rgb.split(','))),
+                  'normal')
         if bld is not None and layer['path'] == coverage:
             # Buildings carry the colour: best frequency per small building, big ones grey
             br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)

@@ -36,6 +36,18 @@ VARIANTS = [
     ('12 magma', {'--palette': 'magma', '--building-saturation': '1.0'}),
 ]
 
+# Dark mode: near-black land, dark greens/water, roads as dark cut-outs, glowing palettes
+DARK_BASE = {
+    '--bg-rgb': '22,23,28', '--green-rgb': '28,36,32', '--forest-rgb': '26,40,33',
+    '--uncovered-rgb': '58,58,64', '--coverage-fade': '0.5', '--building-shade': '1.0',
+    '--building-saturation': '1.1', '--road-edge-mm': '0.1', '--road-edge-rgb': '70,72,82',
+    '--recolor': ['water=24,38,58', 'roads=34,35,42', 'railways=85,85,95', 'buildings=45,46,52'],
+}
+DARK_VARIANTS = [(f'{i:02d} {name}', {'--palette': name}) for i, name in enumerate([
+    'magma_dark', 'inferno_dark', 'plasma_dark', 'chroma_dark', 'ember_dark', 'neon_dark',
+    'flamingo_dark', 'bmy_dark', 'synthwave', 'aurora', 'cyberpunk', 'lava'], 1)]
+SETS = {'light': (BASE, VARIANTS), 'dark': (DARK_BASE, DARK_VARIANTS)}
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -44,30 +56,33 @@ def main():
     ap.add_argument('--name', required=True)
     ap.add_argument('--dpi', default='300')
     ap.add_argument('--cols', type=int, default=4)
+    ap.add_argument('--set', default='light', choices=sorted(SETS))
     ap.add_argument('--only', help='Comma-separated variant numbers to (re)render, e.g. 2,5')
     args = ap.parse_args()
 
     city = get_city(args.city)
     data = sorted(d for d in city['data_dir'].iterdir() if (d / 'coverage_map_gates.gpkg').exists())[-1]
+    base, variants = SETS[args.set]
     out_dir = PROJECT_DIR / 'png' / 'previews' / f'style_{args.name}'
     out_dir.mkdir(parents=True, exist_ok=True)
     only = {int(x) for x in args.only.split(',')} if args.only else None
 
     files = []
-    for label, over in VARIANTS:
+    for label, over in variants:
         num = int(label.split()[0])
         f = out_dir / f'{label.split()[0]}.png'
         files.append((label, f))
         if only and num not in only:
             continue
-        opts = {**BASE, **over}
+        opts = {**base, **over}
         cmd = [sys.executable, 'render_qgis_style.py', '--city', args.city,
                '--coverage', str(data / 'coverage_map_gates.gpkg'),
                '--buildings', str(data / 'buildings_gates.gpkg'),
                '--restricted-buildings', '--date', '07.10.2026', '--dpi', args.dpi,
                '--crop', args.crop, '--out', str(f)]
         for k, v in opts.items():
-            cmd += [k, v]
+            for item in (v if isinstance(v, list) else [v]):
+                cmd += [k, item]
         print(f'{label}...', flush=True)
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL,
                        cwd=Path(__file__).resolve().parent)
