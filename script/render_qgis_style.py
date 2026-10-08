@@ -1011,9 +1011,13 @@ def main():
                 # cross them: show that actual coverage inside the footprint, building-strength
                 bi, ci = gdf.sindex.query(big.geometry, predicate='intersects')
                 if len(bi):
+                    # OSM footprints can be invalid (self-touching rings); GEOS refuses those
+                    big_geoms = shapely.make_valid(big.geometry.to_numpy())
+                    cov_geoms = gdf.geometry.to_numpy()[ci]
+                    cov_geoms = np.where(shapely.is_valid(cov_geoms), cov_geoms, shapely.make_valid(cov_geoms))
                     inside = gpd.GeoDataFrame(
                         {'max_trips': gdf['deduped_trips'].to_numpy()[ci]},
-                        geometry=shapely.intersection(gdf.geometry.to_numpy()[ci], big.geometry.to_numpy()[bi]),
+                        geometry=shapely.intersection(cov_geoms, big_geoms[bi]),
                         crs=gdf.crs)
                     inside = inside[~inside.geometry.is_empty]
                     b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
