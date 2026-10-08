@@ -1005,7 +1005,19 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=dpi, facecolor='white')
+    # Save via a temp file; if the target is locked (open in a viewer / OneDrive sync),
+    # keep the render under a timestamped name instead of failing
+    import os
+    from datetime import datetime as _dt
+    tmp = out.with_name(out.stem + '.tmp' + out.suffix)
+    fig.savefig(tmp, dpi=dpi, facecolor='white')
+    try:
+        os.replace(tmp, out)
+    except OSError:
+        alt = out.with_name(f"{out.stem}_{_dt.now():%H%M}{out.suffix}")
+        os.replace(tmp, alt)
+        print(f"  ({out.name} is locked - saved as {alt.name})")
+        out = alt
     plt.close(fig)
     print(f"Saved {out}")
 
