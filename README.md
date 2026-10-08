@@ -43,6 +43,18 @@ Style: QGIS palette, `--building-shade 0.80 --building-saturation 1.5 --coverage
 --uncovered-rgb 170,170,170`, 150 dpi; Warsaw `--extend-left-m 1000 --extend-right-m 1000`.
 Older maps and previews moved to `png/archive/`.
 
+**2026-10-08: access model fixes + chroma maps.** Product renamed to
+`…_gates_buildings_chroma.png` (palette `chroma`, light grey-green greenery
+`--green-rgb 236,239,236`, `--restricted-buildings`, thin white edges on tertiary+ roads
+`--road-edge-mm 0.1`). Fixes this day: fence leak via path cells, gate openings in the
+fence raster, `foot=yes` alone no longer opens a gate, public path islands behind closed
+gates count as private (stadium grounds), restrictive `access` beats `opening_hours`,
+platform roofs (`building=roof/carport`) not drawn as buildings, coverage noding loss.
+Berlin added (template layout = Kraków). Diagnostic sketches in `png/previews/sketch_*`.
+- **Pending:** Kraków + Warsaw outputs predate the last rule fix (restrictive `access`
+  beats `opening_hours`, ~20 / ~69 gates); rerun both once the current batch of rule
+  checks is done. Berlin includes it.
+
 ## Architecture
 
 ```
@@ -59,14 +71,21 @@ _data/<city>/YYYY_MM_DD/                -- Merged GTFS directory
       [--barriers] [--gates]               checkpointed every 250 stops
     v
 04_create_coverage_map.py [--variant V] -- Deduplicated frequency per area: tiled planar
-                                           subdivision (STRtree, parallel, per-tile cache,
-                                           RAM guard) + parallel dissolve
+                                           subdivision (STRtree, parallel, RAM guard) +
+                                           parallel dissolve. Incremental: tiles on a fixed
+                                           grid cached by a fingerprint of their isochrones
+                                           in <data>/.coverage_cache_<V>/, so a rerun after a
+                                           small rule change only redoes changed tiles
+                                           (Kraków: 47 s all-cached vs ~7 min cold)
     v
 05_building_values.py --variant V       -- (optional) best frequency per building
     v
 render_qgis_style.py                    -- Standalone re-implementation of the QGIS layouts
       [--residents] [--buildings] [--palette] [--crop lon,lat,w,h] [--extend-left/right-m]
-      (layer cache in cache/render/, rasterio drawing; a city renders in ~1-7 min)
+      (layer cache in cache/render/, rasterio drawing; a city renders in ~1-7 min;
+      PNG written to system temp then copied into png/ - OneDrive locks fresh files)
+sketch_access.py --city C --stop REGEX  -- Diagnostic access sketch around a stop
+      [--recompute] [--name] [--suffix]    (--recompute: current rules, just these stops)
 export_layout.py (QGIS python)          -- Exact export of the QGIS layout, project untouched
 compare_barriers.py                     -- buffer vs barrier stats + close-ups
 
