@@ -80,7 +80,9 @@ def main():
     name = st['stop_name'].iloc[0]
     ax.set_title(f'{name} ({city["name"]}): dark = public isochrones, pale = residents-only, '
                  f'green = fences, orange = private ways, red x = closed gates, * = stops', fontsize=9)
-    slug = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+    import unicodedata
+    ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()
+    slug = re.sub(r'[^a-z0-9]+', '_', ascii_name).strip('_')
     out = PROJECT_DIR / 'png' / 'previews' / f'sketch_{city["key"]}_{slug}.png'
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=90, bbox_inches='tight')
