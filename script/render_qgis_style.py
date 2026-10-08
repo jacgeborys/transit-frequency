@@ -811,6 +811,10 @@ def main():
     parser.add_argument('--green-rgb', default=None,
                         help="Recolour parks/forests/grass etc. (fill RGB, alpha kept), "
                              "e.g. '236,239,236' for a very light grey-green")
+    parser.add_argument('--forest-rgb', default=None,
+                        help="Forests only (after --green-rgb), e.g. a touch darker than the other greens")
+    parser.add_argument('--bg-rgb', default=None,
+                        help="Map background (land) RGB instead of the layout's, e.g. '240,240,240'")
     parser.add_argument('--road-edge-mm', type=float, default=0,
                         help='Thin opaque white lines along both sides of main roads (tertiary and above), '
                              'width in mm (e.g. 0.1); no caps across road ends')
@@ -920,14 +924,16 @@ def main():
             stack = [l for l in stack if l not in water]
             cov_pos = next(i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name)
             stack[cov_pos:cov_pos] = water
-    if args.green_rgb:
+    for rgb, stems in ((args.green_rgb, GREEN_LAYERS), (args.forest_rgb, {'forests'})):
+        if not rgb:
+            continue
         for layer in stack:
-            if layer['path'].stem in GREEN_LAYERS:
+            if layer['path'].stem in stems:
                 for sym in layer['renderer']['symbols'].values():
                     for cls, props in sym['layers']:
                         if cls == 'SimpleFill' and 'color' in props:
                             alpha = props['color'].split(',')[3]
-                            props['color'] = f"{args.green_rgb},{alpha}"
+                            props['color'] = f"{rgb},{alpha}"
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
@@ -948,6 +954,9 @@ def main():
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
                               for k in ('red', 'green', 'blue', 'alpha')))
+    if args.bg_rgb:
+        bg = tuple(int(v) / 255 for v in args.bg_rgb.split(',')) + (1.0,)
+    print(f"  background {','.join(str(round(c * 255)) for c in bg[:3])} alpha {bg[3]:.2f}")
     canvas = np.empty((map_px[1], map_px[0], 3), dtype=np.float32)
     canvas[:] = np.array(bg[:3]) * bg[3] + (1 - bg[3])  # over white page
     for layer in reversed(stack):
