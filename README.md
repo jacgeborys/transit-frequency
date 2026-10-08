@@ -51,9 +51,10 @@ fence raster, `foot=yes` alone no longer opens a gate, public path islands behin
 gates count as private (stadium grounds), restrictive `access` beats `opening_hours`,
 platform roofs (`building=roof/carport`) not drawn as buildings, coverage noding loss.
 Berlin added (template layout = Kraków). Diagnostic sketches in `png/previews/sketch_*`.
-- **Pending:** Kraków + Warsaw outputs predate the last rule fix (restrictive `access`
-  beats `opening_hours`, ~20 / ~69 gates); rerun both once the current batch of rule
-  checks is done. Berlin includes it.
+All three cities rerun with every fix (Kraków + Warsaw finished 2026-10-08 21:18).
+Main maps use `--bg-rgb 241,241,241 --forest-rgb 232,236,232` (one step greyer
+background, forests a hair darker, so white road edges stand out). Style comparison
+sheets: `script/_style_grid.py` -> `png/previews/style_grid_*.png`.
 
 ## Architecture
 
