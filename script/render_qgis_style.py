@@ -217,7 +217,80 @@ def register_fonts():
             font_manager.fontManager.addfont(str(f))
 
 
+FONT_DIRS = [Path(os.environ.get('LOCALAPPDATA', '')) / 'Microsoft' / 'Windows' / 'Fonts',
+             Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts']
+PT_MM = 25.4 / 72
+
+
+def inter(weight, size_pt, optical='24pt'):
+    """Inter (installed per-user) at a given weight, e.g. 'Black', 'SemiBold', 'Regular'."""
+    for d in FONT_DIRS:
+        f = d / f'Inter_{optical}-{weight}.ttf'
+        if f.exists():
+            return font_manager.FontProperties(fname=str(f), size=size_pt)
+    return font_manager.FontProperties(family='sans-serif', size=size_pt,
+                                       weight={'Black': 900, 'Bold': 700, 'SemiBold': 600}.get(weight, 400))
+
+
+def draw_headline(fig, to_fig, page_mm, map_mm, city, headline, subline):
+    """Poster header inside the map's top-left: big city name two text rows tall,
+    question + subtitle to its right."""
+    from matplotlib import patheffects
+    mx, my, mw, mh = map_mm
+    title_pt = page_mm[0] * 0.046
+    sub_pt = title_pt * 0.62
+    cap = 0.727                                   # Inter cap height / em
+    rows_mm = (title_pt * 1.25 + sub_pt * 1.0) * PT_MM
+    city_pt = rows_mm / (cap * PT_MM)
+    margin = page_mm[0] * 0.022
+    top = my + margin                             # cap top of every line
+    halo = [patheffects.withStroke(linewidth=title_pt * 0.35, foreground=PAGE_FACE, alpha=0.55)]
+    city_y = top + cap * city_pt * PT_MM
+    t = fig.text(*to_fig(mx + margin, city_y), city, ha='left', va='baseline',
+                 fontproperties=inter('Black', city_pt, '28pt'), color=INK, path_effects=halo, zorder=12)
+    bb = t.get_window_extent(renderer=fig.canvas.get_renderer())
+    city_w = bb.width / fig.dpi * 25.4
+    x2 = mx + margin + city_w + title_pt * 0.55 * PT_MM * 2
+    fig.text(*to_fig(x2, top + cap * title_pt * PT_MM), headline, ha='left', va='baseline',
+             fontproperties=inter('SemiBold', title_pt), color=INK, path_effects=halo, zorder=12)
+    dim = tuple(0.68 * a + 0.32 * b for a, b in zip(matplotlib.colors.to_rgb(INK),
+                                                    matplotlib.colors.to_rgb(PAGE_FACE)))
+    fig.text(*to_fig(x2, city_y), subline, ha='left', va='baseline',
+             fontproperties=inter('Regular', sub_pt, '18pt'), color=dim, path_effects=halo, zorder=12)
+
+
+def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm):
+    """Segmented km scale bar, bottom-right inside the map."""
+    from matplotlib.patches import Rectangle
+    mx, my, mw, mh = map_mm
+    target_km = mw * 0.16 * metres_per_mm / 1000
+    km = min((1, 2, 3, 5, 10, 20, 50), key=lambda v: abs(v - target_km))
+    seg_n = 5 if km in (5, 10, 50) else 4 if km in (2, 20) else 3 if km == 3 else 2
+    length = km * 1000 / metres_per_mm
+    margin = page_mm[0] * 0.022
+    h = page_mm[0] * 0.005
+    x0, y0 = mx + mw - margin - length, my + mh - margin
+    for i in range(seg_n):
+        fig.add_artist(Rectangle(to_fig(x0 + i * length / seg_n, y0), length / seg_n / page_mm[0],
+                                 h / page_mm[1], transform=fig.transFigure, zorder=12,
+                                 facecolor=INK if i % 2 == 0 else PAGE_FACE, edgecolor=INK,
+                                 linewidth=0.6))
+    fp = inter('Medium', page_mm[0] * 0.019, '18pt')
+    for v in (0, km / 2 if seg_n % 2 == 0 else None, km):
+        if v is None:
+            continue
+        lab = f'{v:g}' + (' km' if v == km else '')
+        fig.text(*to_fig(x0 + length * v / km, y0 - h - page_mm[0] * 0.004), lab, ha='center',
+                 va='bottom', fontproperties=fp, color=INK, zorder=12)
+
+
+USE_INTER = False  # poster mode (--headline-city): legend / credits in Inter too
+
+
 def font_props(family, size_pt, style='Regular'):
+    if USE_INTER:
+        return inter({'Medium': 'Medium', 'Bold': 'SemiBold', 'SemiBold': 'SemiBold'}.get(style, 'Regular'),
+                     size_pt * 0.92, '18pt')
     weight = {'Medium': 500, 'Bold': 700, 'SemiBold': 600}.get(style, 400)
     return font_manager.FontProperties(family=family, size=size_pt, weight=weight,
                                        stretch='condensed')
@@ -876,6 +949,12 @@ def main():
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
     parser.add_argument('--road-edge-rgb', default='255,255,255', help='Colour of --road-edge-mm lines')
+    parser.add_argument('--headline-city', default=None,
+                        help="Poster header: big city name (top-left), e.g. 'WARSZAWA'; replaces the layout title")
+    parser.add_argument('--headline', default=None, help='Poster header: question / title next to the city name')
+    parser.add_argument('--subline', default=None, help="Poster header: small line under the title ({date} = --date)")
+    parser.add_argument('--legend-title', default=None, help="Override the legend title, e.g. 'Abfahrten/Tag'")
+    parser.add_argument('--scale-bar', action='store_true', help='Draw a km scale bar (bottom-right)')
     parser.add_argument('--page-rgb', default=None,
                         help="Page colour around the map, legend box fill (dark mode), e.g. '14,14,18'")
     parser.add_argument('--ink-rgb', default=None,
@@ -889,7 +968,8 @@ def main():
     args = parser.parse_args()
 
     city = get_city(args.city)
-    global ENGINE, PAGE_FACE, INK, PALETTE_EXTEND
+    global ENGINE, PAGE_FACE, INK, PALETTE_EXTEND, USE_INTER
+    USE_INTER = bool(args.headline_city)
     PALETTE_EXTEND = args.palette_extend.split(',') if args.palette_extend else None
     if args.page_rgb:
         PAGE_FACE = tuple(int(v) / 255 for v in args.page_rgb.split(','))
@@ -1145,6 +1225,8 @@ def main():
 
     for lab in labels:
         text = lab.get('labelText')
+        if args.headline_city and 'stan na' in text:
+            continue  # replaced by the poster header
         if 'stan na' in text:
             text = re.sub(r'stan na [0-9.]+', f'stan na {args.date}', text)
         x, y, w, h = item_rect(lab)
@@ -1159,11 +1241,17 @@ def main():
         leg_tree = legend_item.find('layer-tree-group')
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
-        leg_layer['legend_title'] = leg_node.get('name')
+        leg_layer['legend_title'] = args.legend_title or leg_node.get('name')
         apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
         draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy)
+
+    if args.headline_city:
+        draw_headline(fig, to_fig, page_mm, (mx, my, mw, mh), args.headline_city,
+                      args.headline or '', (args.subline or '').replace('{date}', args.date or ''))
+    if args.scale_bar:
+        draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
