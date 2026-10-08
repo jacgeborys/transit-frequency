@@ -259,8 +259,8 @@ def draw_headline(fig, to_fig, page_mm, map_mm, city, headline, subline):
              fontproperties=inter('Regular', sub_pt, '18pt'), color=dim, path_effects=halo, zorder=12)
 
 
-def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm):
-    """Segmented km scale bar, bottom-right inside the map."""
+def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm, legend_rect=None):
+    """Segmented km scale bar in a bottom corner inside the map, opposite the legend."""
     from matplotlib.patches import Rectangle
     mx, my, mw, mh = map_mm
     target_km = mw * 0.16 * metres_per_mm / 1000
@@ -269,7 +269,9 @@ def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm):
     length = km * 1000 / metres_per_mm
     margin = page_mm[0] * 0.022
     h = page_mm[0] * 0.005
-    x0, y0 = mx + mw - margin - length, my + mh - margin
+    legend_right = legend_rect is not None and legend_rect[0] + legend_rect[2] / 2 > mx + mw / 2
+    x0 = mx + margin if legend_right else mx + mw - margin - length
+    y0 = my + mh - margin
     for i in range(seg_n):
         fig.add_artist(Rectangle(to_fig(x0 + i * length / seg_n, y0), length / seg_n / page_mm[0],
                                  h / page_mm[1], transform=fig.transFigure, zorder=12,
@@ -892,6 +894,7 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
                                  edgecolor='none', zorder=11))
         fig.text(*to_fig(x + box + sw + lab_st['marginLeft'], cy + sh / 2), RESIDENTS_LABEL,
                  va='center', ha='left', fontproperties=lab_fp, zorder=11)
+    return x, y, width, height
 
 
 def main():
@@ -1243,15 +1246,16 @@ def main():
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = args.legend_title or leg_node.get('name')
         apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
-        draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
+        legend_rect = draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy)
 
+    legend_rect = locals().get('legend_rect')
     if args.headline_city:
         draw_headline(fig, to_fig, page_mm, (mx, my, mw, mh), args.headline_city,
                       args.headline or '', (args.subline or '').replace('{date}', args.date or ''))
     if args.scale_bar:
-        draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw)
+        draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw, legend_rect)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
