@@ -62,6 +62,10 @@ water=… roads=… railways=… buildings=…`, shade 1.0, fade 0.5).
 Favourite: `…_dark_bmy_bright_hq.png` (300 dpi) = `--palette bmy_dark --min-lightness 34
 --palette-extend "#fff38a,#fffbd6" --coverage-fade 0.42` on the dark base. `--min-lightness` is
 CIE L*: every class must look lighter than unserved buildings (58,58,64 is L* ~25).
+Posters (2026-10-09, all three cities, 300 dpi): `--headline-city WARSZAWA --headline "Ile
+odjazdów masz w zasięgu 5 minut pieszo?" --subline "dzień powszedni · środa {date}" --scale-bar`
+(Berlin: German, `--legend-title "Abfahrten/Tag"`). Header, legend and scale bar in
+Bahnschrift (`--poster-font`); the scale bar sits in the bottom corner opposite the legend.
 
 ## Architecture
 
