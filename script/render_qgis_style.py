@@ -955,6 +955,8 @@ def main():
         gdf = load_layer_data(layer, extent, map_crs)
         if bld is not None and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
             gdf = gdf[~gdf['osm_id'].astype('int64').isin(styled_ids)]  # styled separately
+            if 'building' in gdf.columns:  # open structures (platform roofs, carports) aren't barriers
+                gdf = gdf[~gdf['building'].isin(['roof', 'carport'])]
             if args.uncovered_rgb:
                 if uncovered_done:
                     print("(skipped: Schwarzplan mode)")
