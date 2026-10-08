@@ -517,6 +517,83 @@ def download_krakow(city: dict, combined_dir: Path):
     logger.info('Cleaned up raw downloads')
 
 
+def download_prefixed(city: dict, combined_dir: Path):
+    """Merge many independent feeds (e.g. New York: MTA subway, borough buses, rail, PATH, ferry).
+
+    trip_id / service_id get a per-feed prefix. Feeds that share a stop and route numbering
+    (MTA borough bus feeds + MTA Bus Co.) are given one 'id_prefix' in city['gtfs_groups'],
+    so a stop or route served from two feeds stays one stop / one route (no double
+    isochrones, correct per-route dedup). Only stops inside the bbox are kept; shapes are
+    dropped (unused downstream). Each feed's calendar is expanded to calendar_dates first.
+    """
+    raw_dir = city['data_dir'] / '_raw'
+    b = city['bbox']
+    groups = city.get('gtfs_groups', {})
+    out = {k: [] for k in ('stops', 'routes', 'trips', 'stop_times', 'calendar_dates')}
+
+    for feed, url in city['gtfs'].items():
+        try:
+            d = download_and_extract(url, feed, raw_dir)
+        except Exception as e:
+            logger.warning(f'{feed}: download failed ({e}), skipped')
+            continue
+        if feed in city.get('gtfs_extend_calendar', ()):
+            # Expired feed (e.g. PATH, last published 2025): assume its regular weekly
+            # pattern still runs and stretch calendar.txt over the analysis date
+            cal = pd.read_csv(d / 'calendar.txt', dtype=str, encoding='utf-8-sig')
+            cal['end_date'] = cal['end_date'].where(cal['end_date'] > '20271231', '20271231')
+            cal.to_csv(d / 'calendar.txt', index=False)
+            logger.warning(f'{feed}: calendar.txt end dates stretched to 2027-12-31 (stale feed)')
+        ensure_calendar_dates(d)
+        idp = groups.get(feed, feed) + '_'   # stop_id / route_id prefix (shared within a group)
+        fp = feed + '_'                       # trip_id / service_id prefix (per feed)
+
+        stops = pd.read_csv(d / 'stops.txt', dtype=str, encoding='utf-8-sig')
+        lat, lon = stops['stop_lat'].astype(float), stops['stop_lon'].astype(float)
+        stops = stops[(lat >= b['south']) & (lat <= b['north']) &
+                      (lon >= b['west']) & (lon <= b['east'])].copy()
+        keep_stops = set(stops['stop_id'])
+        st = pd.read_csv(d / 'stop_times.txt', dtype=str, encoding='utf-8-sig',
+                         usecols=lambda c: c in ('trip_id', 'stop_id', 'arrival_time',
+                                                 'departure_time', 'stop_sequence'))
+        st = st[st['stop_id'].isin(keep_stops)].copy()
+        trips = pd.read_csv(d / 'trips.txt', dtype=str, encoding='utf-8-sig')
+        trips = trips[trips['trip_id'].isin(set(st['trip_id']))].copy()
+        routes = pd.read_csv(d / 'routes.txt', dtype=str, encoding='utf-8-sig')
+        routes = routes[routes['route_id'].isin(set(trips['route_id']))].copy()
+        cal = pd.read_csv(d / 'calendar_dates.txt', dtype=str, encoding='utf-8-sig')
+        cal = cal[cal['service_id'].isin(set(trips['service_id']))].copy()
+
+        stops['stop_id'] = idp + stops['stop_id']
+        if 'parent_station' in stops.columns:
+            stops['parent_station'] = stops['parent_station'].where(
+                stops['parent_station'].isna(), idp + stops['parent_station'].astype(str))
+        st['stop_id'] = idp + st['stop_id']
+        st['trip_id'] = fp + st['trip_id']
+        routes['route_id'] = idp + routes['route_id']
+        trips['route_id'] = idp + trips['route_id']
+        trips['trip_id'] = fp + trips['trip_id']
+        trips['service_id'] = fp + trips['service_id']
+        cal['service_id'] = fp + cal['service_id']
+        trips = trips.drop(columns=[c for c in ('shape_id',) if c in trips.columns])
+
+        logger.info(f'  {feed}: {len(stops)} stops in bbox, {len(trips)} trips, '
+                    f'{len(st)} stop_times, {len(routes)} routes')
+        for k, df in (('stops', stops), ('routes', routes), ('trips', trips),
+                      ('stop_times', st), ('calendar_dates', cal)):
+            out[k].append(df)
+        shutil.rmtree(d)
+
+    combined_dir.mkdir(parents=True)
+    for k, dfs in out.items():
+        df = pd.concat(dfs, ignore_index=True)
+        if k in ('stops', 'routes'):  # shared bus stops/routes appear in several feeds
+            df = df.drop_duplicates(subset=[k[:-1] + '_id'])
+        df.to_csv(combined_dir / f'{k}.txt', index=False)
+        logger.info(f'{k}.txt: {len(df)} rows')
+    shutil.rmtree(raw_dir, ignore_errors=True)
+
+
 def download_warsaw(city: dict, combined_dir: Path):
     """Download and merge ZTM + KM + WKD for Warsaw."""
     raw_dir = city['data_dir'] / '_raw'
@@ -585,6 +662,8 @@ def main():
         download_warsaw(city, combined_dir)
     elif city['gtfs_merge'] == 'krakow':
         download_krakow(city, combined_dir)
+    elif city['gtfs_merge'] == 'prefixed':
+        download_prefixed(city, combined_dir)
     else:
         download_single(city, combined_dir)
 

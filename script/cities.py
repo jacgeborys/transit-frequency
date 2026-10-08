@@ -91,6 +91,11 @@ def _berlin_vehicle(rid):
     return 'bus'
 
 
+def _nyc_vehicle(rid):
+    # Every NYC feed has route_type (used first); this is only the fallback
+    return 'bus'
+
+
 # ---------------------------------------------------------------------------
 # City definitions
 # ---------------------------------------------------------------------------
@@ -196,6 +201,37 @@ CITIES = {
         'geofabrik': 'https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf',
         'network_tiles': 8,  # dense 45 x 38 km area: keep Overpass requests small
         'template': 'krakow',  # no QGIS layout of its own: render with Kraków's layout/styles
+    },
+
+    'manhattan': {
+        'name': 'Manhattan',
+        # Manhattan + ~1 km margin (Jersey City/Hoboken, LIC, south Bronx, downtown Brooklyn)
+        'bbox': {
+            'south': 40.690, 'west': -74.035,
+            'north': 40.885, 'east': -73.900,
+        },
+        'crs_metric': 'EPSG:32618',  # UTM 18N (metres); NY State Plane is in US feet
+        'gtfs': {
+            'subway': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip',
+            'bus_m': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_m.zip',
+            'bus_bx': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_bx.zip',
+            'bus_b': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_b.zip',
+            'bus_q': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_q.zip',
+            'bus_co': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_busco.zip',  # MTA Bus Co. (express)
+            'lirr': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip',
+            'mnr': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip',
+            'path': 'http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip',
+            'ferry': 'https://nycferry.connexionz.net/rtt/public/resource/gtfs.zip',
+        },
+        'gtfs_merge': 'prefixed',
+        # MTA bus feeds share stop and route ids: one prefix, so shared stops/routes merge
+        'gtfs_groups': {f: 'bus' for f in ('bus_m', 'bus_bx', 'bus_b', 'bus_q', 'bus_co')},
+        'gtfs_extend_calendar': {'path'},  # PATH feed expired 2026-06; no newer one published
+        'exact_service_match': True,
+        'vehicle_classify': _nyc_vehicle,
+        'has_frequencies': False,
+        'network_tiles': 6,
+        'template': 'warsaw',  # tall, narrow island: portrait layout
     },
 }
 

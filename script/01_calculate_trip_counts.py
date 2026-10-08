@@ -166,10 +166,13 @@ def main():
     ]['service_id'].tolist()
     print(f"Active service_ids for {target_date}: {len(active_services)}")
 
-    # Substring matching (handles ZTM's '2026-08-03:PcS' format)
-    mask = trips_df['service_id'].apply(
-        lambda sid: any(s in str(sid) for s in active_services)
-    )
+    if city.get('exact_service_match'):
+        mask = trips_df['service_id'].isin(set(active_services))
+    else:
+        # Substring matching (handles ZTM's '2026-08-03:PcS' format)
+        mask = trips_df['service_id'].apply(
+            lambda sid: any(s in str(sid) for s in active_services)
+        )
     trips_filtered = trips_df[mask].copy()
     print(f"Matching trips: {len(trips_filtered)}")
 
@@ -177,7 +180,7 @@ def main():
     routes_df = pd.read_csv(data_dir / "routes.txt", dtype=str, encoding='utf-8-sig')
     # GTFS route_type: 0=tram, 1=metro/subway, 2=rail, 3=bus, 5=cable, 7=funicular, 11=trolleybus, 12=monorail
     # Standard GTFS + extended route types (https://gtfs.org/schedule/reference/#routestxt)
-    gtfs_type_map = {'0': 'tram', '1': 'metro', '2': 'train', '3': 'bus',
+    gtfs_type_map = {'0': 'tram', '1': 'metro', '2': 'train', '3': 'bus', '4': 'bus',  # 4 = ferry
                      '5': 'bus', '7': 'bus', '11': 'bus', '12': 'train',
                      '900': 'tram', '901': 'tram', '902': 'tram',
                      '100': 'train', '101': 'train', '102': 'train', '103': 'train',

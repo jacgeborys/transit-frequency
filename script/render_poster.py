@@ -47,8 +47,7 @@ POSTER = {
     'poznan': {'city': 'POZNAŃ', **PL},
     'gdansk': {'city': 'GDAŃSK', **PL},
     'berlin': {'city': 'BERLIN', **DE},
-    # New cities: add an entry, e.g.
-    # 'manhattan': {'city': 'MANHATTAN', **EN},
+    'manhattan': {'city': 'MANHATTAN', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }
 
 
