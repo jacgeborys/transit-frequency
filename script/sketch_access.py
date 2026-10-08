@@ -138,7 +138,22 @@ def main():
     slug = re.sub(r'[^a-z0-9]+', '_', ascii_name).strip('_')
     out = PROJECT_DIR / 'png' / 'previews' / f'sketch_{city["key"]}_{slug}{args.suffix}.png'
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=90, bbox_inches='tight')
+    # Temp file outside OneDrive, copied in with retries; timestamped name if still locked
+    import os, shutil, tempfile, time
+    from datetime import datetime
+    fd, tmp = tempfile.mkstemp(suffix='.png')
+    os.close(fd)
+    fig.savefig(tmp, dpi=90, bbox_inches='tight')
+    for _ in range(6):
+        try:
+            shutil.copyfile(tmp, out)
+            break
+        except OSError:
+            time.sleep(5)
+    else:
+        out = out.with_name(f'{out.stem}_{datetime.now():%H%M}.png')
+        shutil.copyfile(tmp, out)
+    os.remove(tmp)
     print(f'Saved {out}')
 
 

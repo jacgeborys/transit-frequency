@@ -11,9 +11,14 @@ This prevents inflating frequency when the same bus line passes multiple
 nearby stops that all fall within walking distance.
 
 The subdivision is done per tile (STRtree picks the isochrones touching each
-tile) in parallel worker processes. Finished tiles are cached, so an
-interrupted run resumes where it stopped. Pieces are snapped to a 1 cm grid so
+tile) in parallel worker processes. Pieces are snapped to a 1 cm grid so
 tile edges line up and the final dissolve joins them seamlessly.
+
+Incremental: tiles sit on a fixed grid and each finished tile is cached under a
+fingerprint of the isochrones touching it (geometry + trip counts), in
+<data>/.coverage_cache_<variant>/. A rerun after a small change (a few gates,
+a few stops) only recomputes the tiles whose isochrones changed; an interrupted
+run resumes for free. Fixed geometries (step 1) are cached the same way.
 
 Usage:
     python 04_create_coverage_map.py --city warsaw [data_folder]
@@ -23,6 +28,7 @@ Usage:
     python 04_create_coverage_map.py --city warsaw --workers 4 --tile 1500
 """
 import argparse
+import hashlib
 import os
 import pickle
 import shutil
@@ -156,7 +162,8 @@ def process_tile(task):
     groups = {}
     for geom, routes, trips in out:
         groups.setdefault(trips, [routes, []])[1].append(geom)
-    merged = [(_coverage_union(geoms), routes, trips)
+    # Snapped here (in the worker, cached with the tile) so tile edges line up exactly
+    merged = [(shapely.set_precision(_coverage_union(geoms), SNAP_M), routes, trips)
               for trips, (routes, geoms) in groups.items()]
     return tile_id, merged
 
@@ -179,23 +186,40 @@ def dissolve_group(task):
     """Final cross-tile dissolve of one trip value (runs in a worker)."""
     trips, routes, geoms = task
     geoms = [g if g.is_valid else make_valid(g) for g in geoms]  # one bad piece corrupts the union
-    return trips, routes, unary_union(geoms)
+    merged = unary_union(geoms)
+    # Cleanup here, in parallel (was a slow single-process pass over all parts)
+    if not merged.is_empty:
+        merged = make_valid(merged.buffer(0))
+    return trips, routes, merged
+
+
+def _digest(*parts):
+    h = hashlib.blake2b(digest_size=16)
+    for p in parts:
+        h.update(p if isinstance(p, bytes) else str(p).encode())
+        h.update(b'|')
+    return h.digest()
 
 
 def make_tasks(gdf, tile_m):
-    """Tile the extent; STRtree selects the isochrones touching each tile."""
+    """
+    Tiles on a fixed grid (multiples of tile_m, so they don't shift when the extent
+    changes); STRtree selects the isochrones touching each tile. The task id is a
+    fingerprint of the tile and its isochrones, used as the cache key.
+    """
     minx, miny, maxx, maxy = gdf.total_bounds
     geoms = gdf.geometry.to_numpy()
     rtcs = gdf['route_trip_counts'].to_numpy()
+    iso_keys = [_digest(shapely.to_wkb(g), r) for g, r in zip(geoms, rtcs)]
     tree = STRtree(geoms)
     tasks = []
-    for i, x0 in enumerate(np.arange(minx, maxx, tile_m)):
-        for j, y0 in enumerate(np.arange(miny, maxy, tile_m)):
-            bounds = (x0, y0, x0 + tile_m, y0 + tile_m)
+    for x0 in np.arange(np.floor(minx / tile_m) * tile_m, maxx, tile_m):
+        for y0 in np.arange(np.floor(miny / tile_m) * tile_m, maxy, tile_m):
+            bounds = (float(x0), float(y0), float(x0 + tile_m), float(y0 + tile_m))
             hits = tree.query(box(*bounds))
             if len(hits):
-                tasks.append((f"{i:03d}_{j:03d}", bounds,
-                              list(geoms[hits]), list(rtcs[hits])))
+                key = _digest(bounds, SNAP_M, *sorted(iso_keys[h] for h in hits)).hex()
+                tasks.append((key, bounds, list(geoms[hits]), list(rtcs[hits])))
     return tasks
 
 
@@ -210,6 +234,8 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
     Loads the isochrones itself and releases each stage once the next exists,
     so peak memory stays low on large cities.
     """
+    t0 = datetime.now()
+    stamp = lambda: f"[{(datetime.now() - t0).total_seconds():.0f}s]"
     print("Loading isochrones...", end=' ', flush=True)
     gdf = gpd.read_file(input_file)
     original_crs = gdf.crs
@@ -220,27 +246,39 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
     # Step 1: Fix geometries
     print("Step 1: Fixing geometries...")
 
-    def fix_all():
-        fixed_gdf = gdf.copy()
-        valid_mask = []
-        for idx, geom in enumerate(fixed_gdf.geometry):
-            if (idx + 1) % 1000 == 0:
-                print(f"    {idx + 1}/{len(fixed_gdf)}...", flush=True)
+    # Cached per input geometry, so unchanged isochrones are never re-fixed
+    fixed_file = cache_dir / 'fixed.pkl' if cache_dir else None
+    old = {}
+    if fixed_file and fixed_file.exists():
+        with open(fixed_file, 'rb') as fh:
+            old = pickle.load(fh)
+    new, out_geoms, n_new = {}, [], 0
+    for idx, geom in enumerate(gdf.geometry):
+        k = _digest(shapely.to_wkb(geom))
+        if k in old:
+            wkb = old[k]
+        else:
             fixed = fix_geometry(geom)
-            if fixed is not None:
-                fixed_gdf.at[fixed_gdf.index[idx], 'geometry'] = fixed
-                valid_mask.append(True)
-            else:
-                valid_mask.append(False)
-        return fixed_gdf[valid_mask].copy()
-
-    gdf = _cached(cache_dir, 'step1_fixed', fix_all)
-    print(f"  {len(gdf)} geometries validated\n")
+            wkb = shapely.to_wkb(fixed) if fixed is not None else None
+            n_new += 1
+            if n_new % 1000 == 0:
+                print(f"    {n_new} fixed...", flush=True)
+        new[k] = wkb
+        out_geoms.append(wkb)
+    if fixed_file:
+        with open(fixed_file, 'wb') as fh:
+            pickle.dump(new, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    del old, new
+    valid = np.array([w is not None for w in out_geoms])
+    gdf = gdf[valid].copy()
+    gdf['geometry'] = shapely.from_wkb([w for w in out_geoms if w is not None])
+    del out_geoms
+    print(f"  {stamp()} {len(gdf)} geometries validated ({n_new} new, {int(valid.size) - n_new} cached)\n")
 
     # Step 2: Tiled planar subdivision + route dedup
     tasks = make_tasks(gdf, tile_m)
     del gdf  # tasks hold the geometries they need
-    tiles_dir = cache_dir / f"tiles_{tile_m}_v2" if cache_dir else None  # v2: pre-dissolved
+    tiles_dir = cache_dir / f"tiles_{tile_m}_v4" if cache_dir else None  # v4: fingerprint keys, snapped
     if tiles_dir:
         tiles_dir.mkdir(exist_ok=True)
     done = {}
@@ -285,6 +323,10 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
                           f"~{el / n * (len(todo) - n):.0f}s remaining, "
                           f"{free_gb():.1f} GB RAM free", flush=True)
 
+    if tiles_dir:  # keep only the tiles of this run
+        for f in tiles_dir.glob('*.pkl'):
+            if f.stem not in done:
+                f.unlink()
     del tasks, todo, queue, in_flight
     rows = [r for result in done.values() for r in result]
     del done
@@ -293,11 +335,11 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
         return None
     pieces_gdf = gpd.GeoDataFrame(
         {'unique_routes': [r[1] for r in rows], 'deduped_trips': [r[2] for r in rows]},
-        geometry=shapely.set_precision([r[0] for r in rows], SNAP_M),
+        geometry=[r[0] for r in rows],  # already snapped per tile
         crs=crs_metric)
     del rows
     pieces_gdf = pieces_gdf[~pieces_gdf.geometry.is_empty]
-    print(f"  {len(pieces_gdf)} pieces with coverage\n")
+    print(f"  {stamp()} {len(pieces_gdf)} pieces with coverage\n")
 
     # Step 3: Dissolve across tile edges, one trip value per task, in parallel
     groups = {}
@@ -324,14 +366,12 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
         geometry=[o[2] for o in out3], crs=crs_metric)
     del out3
     dissolved = dissolved.explode(index_parts=False).reset_index(drop=True)
-    print(f"  {len(dissolved)} polygons after dissolve\n")
+    print(f"  {stamp()} {len(dissolved)} polygons after dissolve\n")
 
     # Step 4: Cleanup
     print("Step 4: Cleanup...")
-    dissolved['geometry'] = dissolved.geometry.apply(
-        lambda g: make_valid(g.buffer(0)) if g is not None and not g.is_empty else None
-    )
     dissolved = dissolved[dissolved.geometry.notna()]
+    dissolved = dissolved[dissolved.geom_type.isin(['Polygon', 'MultiPolygon'])]
     dissolved = dissolved[~dissolved.geometry.is_empty]
     dissolved = dissolved[dissolved.geometry.is_valid]
     dissolved = dissolved[dissolved.geometry.area > 10]
@@ -342,7 +382,7 @@ def create_coverage_map(input_file, crs_metric: str, cache_dir=None,
     dissolved = dissolved.to_crs(original_crs)
     dissolved = dissolved.sort_values('deduped_trips', ascending=False).reset_index(drop=True)
 
-    print(f"  Final: {len(dissolved)} polygons\n")
+    print(f"  {stamp()} Final: {len(dissolved)} polygons\n")
     return dissolved
 
 
@@ -405,10 +445,13 @@ def main():
         print("Run 03_generate_isochrones_local.py first.")
         return
 
-    # Intermediate results are cached so an interrupted run resumes where it stopped
-    stat = input_file.stat()
-    cache_dir = data_dir / f".cache_coverage{suffix}_{stat.st_size}_{int(stat.st_mtime)}"
+    # Persistent incremental cache (see module docstring)
+    cache_dir = data_dir / f".coverage_cache{suffix}"
     cache_dir.mkdir(exist_ok=True)
+    import re
+    for old_dir in data_dir.glob(f".cache_coverage{suffix}_*"):  # pre-incremental caches
+        if re.fullmatch(rf"\.cache_coverage{suffix}_\d+_\d+", old_dir.name):
+            shutil.rmtree(old_dir, ignore_errors=True)
 
     start_time = datetime.now()
     coverage = create_coverage_map(input_file, crs_metric, cache_dir, args.workers, args.tile)
@@ -419,7 +462,6 @@ def main():
 
     print("Saving...", end=' ', flush=True)
     coverage.to_file(output_file, driver="GPKG")
-    shutil.rmtree(cache_dir)  # finished; intermediate cache no longer needed
     elapsed = (datetime.now() - start_time).total_seconds()
     print("Done")
 
