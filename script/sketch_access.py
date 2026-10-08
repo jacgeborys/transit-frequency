@@ -10,7 +10,10 @@ Usage:
     python sketch_access.py --city warsaw --stop "Centrum" --radius 600
     -> png/previews/sketch_<city>_<stop>.png
 
-Needs isochrones_gates*.gpkg (03 --gates) in the latest data folder for the city.
+Needs isochrones_gates*.gpkg (03 --gates) in the latest data folder for the city,
+or --recompute: rebuild just these stops' isochrones with the current access rules
+and barrier model (loads the walking network, ~1-3 min) - for checking a rule change
+before rerunning the whole city.
 """
 import argparse
 import re
@@ -26,6 +29,35 @@ from access_rules import closed_gate_ids, private_way_ids
 from cities import get_city, add_city_argument, PROJECT_DIR
 
 
+def recompute(city, st, stops):
+    """Isochrones of just these stops with the current rules (as 03 --gates does)."""
+    import importlib.util
+    import pickle
+    import numpy as np
+    spec = importlib.util.spec_from_file_location(
+        'iso', Path(__file__).resolve().parent / '03_generate_isochrones_local.py')
+    iso = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(iso)
+    crs, osm = city['crs_metric'], city['osm_dir']
+    with open(city['network_dir'] / 'walking_network.pkl', 'rb') as f:
+        G = pickle.load(f)
+    access = {'closed_gates': closed_gate_ids(osm, crs), 'private_ways': private_way_ids(osm)}
+    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access)
+    del G
+    grid = iso.BarrierGrid(city, crs, coords, access['closed_gates'])
+    ctx = {'coords': coords, 'grid': grid, 'gate_net': gate_net, 'sparse': None}
+    _, k = gate_net['public_tree'].query(np.column_stack([st.stop_lon, st.stop_lat]))
+    pubs, ress = [], []
+    for sid, p, nn in zip(st.stop_id, stops.geometry, gate_net['public_idx'][k]):
+        poly, poly_res = iso.compute_stop(nn, p.x, p.y, ctx)
+        if poly is not None:
+            pubs.append((sid, poly))
+            ress.append((sid, poly_res if poly_res is not None else poly))
+    as_gdf = lambda rows: gpd.GeoDataFrame({'stop_id': [r[0] for r in rows]},
+                                           geometry=[r[1] for r in rows], crs=crs)
+    return as_gdf(pubs), as_gdf(ress)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Access sketch around a stop')
     add_city_argument(parser)
@@ -33,6 +65,8 @@ def main():
     parser.add_argument('--radius', type=float, default=450, help='Half-width of the view in m')
     parser.add_argument('--highlight', help='gpkg of polygons to outline in blue (e.g. uncovered plots)')
     parser.add_argument('--name', help='Title / file name (default: first matching stop)')
+    parser.add_argument('--recompute', action='store_true',
+                        help='Recompute these stops with the current rules instead of reading the city files')
     parser.add_argument('--suffix', default='', help='Appended to the output file name')
     parser.add_argument('data_folder', nargs='?')
     args = parser.parse_args()
@@ -54,11 +88,14 @@ def main():
     bb = (cx - r, cy - r, cx + r, cy + r)
     b4 = tuple(gpd.GeoSeries.from_xy([bb[0], bb[2]], [bb[1], bb[3]], crs=crs).to_crs(4326).total_bounds)
 
-    pub = gpd.read_file(data_dir / 'isochrones_gates.gpkg').to_crs(crs)
-    pub = pub[pub.stop_id.isin(ids)]
-    res_file = data_dir / 'isochrones_gates_residents.gpkg'
-    res = gpd.read_file(res_file).to_crs(crs) if res_file.exists() else pub.iloc[0:0]
-    res = res[res.stop_id.isin(ids)]
+    if args.recompute:
+        pub, res = recompute(city, st, stops)
+    else:
+        pub = gpd.read_file(data_dir / 'isochrones_gates.gpkg').to_crs(crs)
+        pub = pub[pub.stop_id.isin(ids)]
+        res_file = data_dir / 'isochrones_gates_residents.gpkg'
+        res = gpd.read_file(res_file).to_crs(crs) if res_file.exists() else pub.iloc[0:0]
+        res = res[res.stop_id.isin(ids)]
 
     fig, ax = plt.subplots(figsize=(11, 11))
     bld = gpd.read_file(osm / 'buildings.gpkg', bbox=b4).to_crs(crs)

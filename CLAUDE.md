@@ -38,8 +38,8 @@ Full city reruns are slow (coverage step: Warsaw ~2x20 min, Berlin ~2x30 min). W
 `access_rules.py` or the barrier model:
 1. Check each change on a sketch: `script/sketch_access.py --city X --stop "^Name$"`
    (regex on stop names; `--name` for the title/file name, `--suffix` if the PNG is locked).
-   Sketches read the city's current isochrones, so for a quick test recompute only the
-   nearby stops (pattern: scratch `test_gate_plots.py`) instead of the whole city.
+   Add `--recompute` to rebuild just those stops with the current rules (~1 min Kraków,
+   a few min Warsaw/Berlin) instead of reading the city's (possibly stale) isochrones.
 2. Collect several fixes, then rerun each city once (03 -> 04 gates -> 04 gates_residents
    -> 05 -> render). Bump the `_gN` checkpoint tag in 03 when access rules change.
 
