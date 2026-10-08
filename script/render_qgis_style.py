@@ -52,6 +52,7 @@ GREEN_LAYERS = {'parks', 'forests', 'meadow', 'grass', 'leisure', 'leisure_relat
 COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
 BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
 BUILDING_SATURATION = 1.0      # saturation multiplier for building colours
+PALETTE_EXTEND = None
 PAGE_FACE, INK = 'white', 'black'  # page fill / text, frames (--page-rgb / --ink-rgb)
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
 BIG_BUILDING_RIM_M = 0         # >0: covered big buildings show an accessible rim this deep
@@ -139,7 +140,7 @@ PALETTES = {
 }
 
 
-def apply_palette(renderer, name):
+def apply_palette(renderer, name, extend=None, min_lightness=0.0):
     """Recolour a graduated renderer's classes in place with a matplotlib colormap."""
     if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
         return
@@ -159,9 +160,23 @@ def apply_palette(renderer, name):
     else:
         cmap = matplotlib.colormaps[cmap_name] if hasattr(matplotlib, 'colormaps') \
             else plt.get_cmap(cmap_name)
+    if extend:
+        # Continue the ramp past its top: the base [a, b] becomes the lower part,
+        # the extra colours follow at the base's own step size
+        from matplotlib.colors import LinearSegmentedColormap, to_rgb
+        n = 12
+        base = [cmap(a + (b - a) * i / (n - 1))[:3] for i in range(n)]
+        cmap = LinearSegmentedColormap.from_list(f'{name}+', base + [to_rgb(c) for c in extend])
+        a, b = 0.0, 1.0
+    import colorsys
     syms = [s for _, _, s, _, _ in renderer['ranges']]
     for k, sym_name in enumerate(syms):
         r, g, bl, _ = cmap(a + (b - a) * k / max(1, len(syms) - 1))
+        if min_lightness:
+            # Never darker than the floor (dark mode: lighter than unserved buildings)
+            h_, l_, s_ = colorsys.rgb_to_hls(r, g, bl)
+            if l_ < min_lightness:
+                r, g, bl = colorsys.hls_to_rgb(h_, min_lightness, s_)
         for cls, props in renderer['symbols'][sym_name]['layers']:
             if cls == 'SimpleFill':
                 alpha = props['color'].split(',')[3]
@@ -837,6 +852,11 @@ def main():
                              "e.g. '236,239,236' for a very light grey-green")
     parser.add_argument('--forest-rgb', default=None,
                         help="Forests only (after --green-rgb), e.g. a touch darker than the other greens")
+    parser.add_argument('--palette-extend', default=None,
+                        help="Extra colours past the palette top, e.g. '#fff38a,#fffbd6'")
+    parser.add_argument('--min-lightness', type=float, default=0.0,
+                        help='Lift class colours to at least this HLS lightness (0-1); in dark mode '
+                             'keeps the lowest classes lighter than unserved buildings')
     parser.add_argument('--recolor', action='append', default=[], metavar='LAYER=R,G,B',
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
@@ -854,7 +874,8 @@ def main():
     args = parser.parse_args()
 
     city = get_city(args.city)
-    global ENGINE, PAGE_FACE, INK
+    global ENGINE, PAGE_FACE, INK, PALETTE_EXTEND
+    PALETTE_EXTEND = args.palette_extend.split(',') if args.palette_extend else None
     if args.page_rgb:
         PAGE_FACE = tuple(int(v) / 255 for v in args.page_rgb.split(','))
     if args.ink_rgb:
@@ -985,7 +1006,7 @@ def main():
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
             layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
-            apply_palette(layer['renderer'], args.palette)
+            apply_palette(layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
 
     bld = None
     if args.buildings:
@@ -1114,7 +1135,7 @@ def main():
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = leg_node.get('name')
-        apply_palette(leg_layer['renderer'], args.palette)
+        apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
         draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy)
