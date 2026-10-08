@@ -14,9 +14,11 @@ Gate rules (first match wins), validated on Warsaw OSM data 2026-10:
   closed  foot = private / no / customers / ...
   closed  locked = yes
   open    access = yes / permissive / designated / public
+  closed  access = private / no / customers / residents / destination / ...
+          (beats opening_hours / locked=no: school gates open at drop-off hours
+          are still access=customers)
   open    locked = no
   open    has opening_hours (public with hours; the map shows daytime)
-  closed  access = private / no / customers / residents / destination / ...
   open    untagged, within 15 m of a park or cemetery
   closed  untagged anywhere else (estates, ROD allotments, yards)
 Lift gates are not loaded at all (pedestrians walk around them), nor are
@@ -49,12 +51,12 @@ def gate_is_closed(tags: dict, in_public_area: bool) -> bool:
         return True
     if access in OPEN_VALS:
         return False
+    if access in CLOSED_VALS:
+        return True
     if tags.get('locked') == 'no':
         return False
     if _str(tags.get('opening_hours')):
         return False
-    if access in CLOSED_VALS:
-        return True
     return not in_public_area
 
 
