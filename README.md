@@ -55,6 +55,10 @@ All three cities rerun with every fix (Kraków + Warsaw finished 2026-10-08 21:1
 Main maps use `--bg-rgb 241,241,241 --forest-rgb 232,236,232` (one step greyer
 background, forests a hair darker, so white road edges stand out). Style comparison
 sheets: `script/_style_grid.py` -> `png/previews/style_grid_*.png`.
+Dark mode (2026-10-08): Warsaw `png/how_many_rides_in_5_mins_2026_10_07_dark_<palette>.png`
+for lava, synthwave, aurora, cyberpunk, bmy_dark (`_style_grid.py --set dark` has the
+exact options: `--bg-rgb 22,23,28 --page-rgb 14,14,18 --ink-rgb 225,225,232 --recolor
+water=… roads=… railways=… buildings=…`, shade 1.0, fade 0.5).
 
 ## Architecture
 
