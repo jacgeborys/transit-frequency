@@ -8,7 +8,9 @@ part of the public walking network; residents can still use them to reach the
 public network (see 03_generate_isochrones_local.py --gates).
 
 Gate rules (first match wins), validated on Warsaw OSM data 2026-10:
-  open    foot = yes / permissive / designated / public
+  open    foot = permissive / designated / public
+          (foot = yes alone proves nothing on a gate: mappers use it for "pedestrian
+          gate", e.g. on fenced campuses - the gate then follows the rules below)
   closed  foot = private / no / customers / ...
   closed  locked = yes
   open    access = yes / permissive / designated / public
@@ -39,7 +41,7 @@ def _str(v):
 
 def gate_is_closed(tags: dict, in_public_area: bool) -> bool:
     foot, access = _str(tags.get('foot')), _str(tags.get('access'))
-    if foot in OPEN_VALS:
+    if foot in OPEN_VALS and foot != 'yes':
         return False
     if foot in CLOSED_VALS:
         return True
