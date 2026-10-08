@@ -542,6 +542,37 @@ def render_layer_rgba(gdf, renderer, extent, size_px, dpi):
     return layer
 
 
+def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0, 1.0)):
+    """Thin opaque outline along both edges of each drawn road (at its symbol width)."""
+    from affine import Affine
+    from rasterio.features import rasterize
+    w, h = size_px
+    ss = SUPERSAMPLE
+    W, H = w * ss, h * ss
+    x0, y0, x1, y1 = extent
+    transform = Affine((x1 - x0) / W, 0, x0, 0, -(y1 - y0) / H, y1)
+    m_per_mm = (x1 - x0) / W * (dpi * ss / MM_PER_INCH)
+    layer = np.zeros((h, w, 4), dtype=np.float32)
+    syms = assign_symbols(gdf, renderer)
+    geoms_all = gdf.geometry.to_numpy()
+    edges = []
+    for sname in set(s for s in syms if s is not None):
+        m = syms == sname
+        for cls, p in renderer['symbols'][sname]['layers']:
+            if cls != 'SimpleLine' or p.get('line_style', 'solid') == 'no':
+                continue
+            half = float(p.get('line_width', 0.26)) * m_per_mm / 2
+            road = shapely.buffer(geoms_all[m], half, cap_style='flat', join_style='bevel')
+            edges.append(shapely.buffer(shapely.boundary(road), edge_mm * m_per_mm / 2))
+    edges = [g for arr in edges for g in arr if g is not None and not g.is_empty]
+    if not edges:
+        return layer
+    mask = rasterize(((g, 1) for g in edges), out_shape=(H, W), transform=transform, dtype='uint8')
+    frac = mask.reshape(h, ss, w, ss).mean(axis=(1, 3), dtype=np.float32)
+    _composite_over(layer, frac, (*rgb, 1.0))
+    return layer
+
+
 def render_layer_rgba_mpl(gdf, renderer, extent, size_px, dpi):
     """Render one layer onto a transparent canvas -> float32 RGBA (H, W, 4), straight alpha."""
     w, h = size_px
@@ -765,6 +796,8 @@ def main():
     parser.add_argument('--green-rgb', default=None,
                         help="Recolour parks/forests/grass etc. (fill RGB, alpha kept), "
                              "e.g. '236,239,236' for a very light grey-green")
+    parser.add_argument('--road-edge-mm', type=float, default=0,
+                        help='Thin opaque white outline along road edges, width in mm (e.g. 0.1)')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
@@ -935,6 +968,9 @@ def main():
             del res
         blend(canvas, rgba, mode)
         del rgba
+        if args.road_edge_mm > 0 and layer['path'].stem == 'roads':
+            blend(canvas, road_edges_rgba(gdf, layer['renderer'], extent, map_px, dpi,
+                                          args.road_edge_mm), 'normal')
         if bld is not None and layer['path'] == coverage:
             # Buildings carry the colour: best frequency per small building, big ones grey
             br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)
