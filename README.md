@@ -85,8 +85,12 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
   residents-only layer you can enter from public paths but never leave back into public
   space (no shortcuts through estates). Outputs `isochrones_gates` (public) and
   `isochrones_gates_residents` (public + restricted). Rules in `access_rules.py`:
-  explicit tags win; untagged gates are closed except within 15 m of parks/cemeteries;
-  lift gates ignored; ROD allotments count as closed.
+  explicit tags win, except `foot=yes` alone (often just means "pedestrian gate", e.g. on
+  private campuses); untagged gates are closed except within 15 m of parks/cemeteries;
+  lift gates ignored; ROD allotments count as closed. Gate nodes also cut a ~5 m opening
+  in the fence raster (open gates: everyone; closed gates: residents run only), so gates
+  without a mapped path through them still connect fenced plots. Path cells never
+  override fence or closed-gate cells (sidewalks along fences would leak into plots).
 
 ## Quick start (new city)
 
