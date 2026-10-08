@@ -32,6 +32,17 @@ where data comes from and how to produce maps.
 buildings can be entered 10 m deep but not crossed. Needs `buildings.gpkg` + `barriers.gpkg`
 in the city's osm_basemap folder.
 
+## Changing access rules: check on sketches, rerun in batches
+
+Full city reruns are slow (coverage step: Warsaw ~2x20 min, Berlin ~2x30 min). When tuning
+`access_rules.py` or the barrier model:
+1. Check each change on a sketch: `script/sketch_access.py --city X --stop "^Name$"`
+   (regex on stop names; `--name` for the title/file name, `--suffix` if the PNG is locked).
+   Sketches read the city's current isochrones, so for a quick test recompute only the
+   nearby stops (pattern: scratch `test_gate_plots.py`) instead of the whole city.
+2. Collect several fixes, then rerun each city once (03 -> 04 gates -> 04 gates_residents
+   -> 05 -> render). Bump the `_gN` checkpoint tag in 03 when access rules change.
+
 ## Rendering the published maps
 
 The PNGs in `png/` come from print layouts in `transit-frequency-map.qgz` (one per city;
