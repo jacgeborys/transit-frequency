@@ -52,6 +52,7 @@ GREEN_LAYERS = {'parks', 'forests', 'meadow', 'grass', 'leisure', 'leisure_relat
 COVERAGE_FADE = 0.6            # area fill opacity factor when buildings carry the colour
 BUILDING_SHADE = 0.85          # class colour slightly darkened on buildings
 BUILDING_SATURATION = 1.0      # saturation multiplier for building colours
+PAGE_FACE, INK = 'white', 'black'  # page fill / text, frames (--page-rgb / --ink-rgb)
 BIG_BUILDING_RGB = '190,190,190,255'  # opaque grey: hides indoor corridors of malls etc.
 BIG_BUILDING_RIM_M = 0         # >0: covered big buildings show an accessible rim this deep
 
@@ -762,7 +763,7 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
 
     frame_w = parse_mm(item.get('outlineWidthM', '0.3,mm'))[0] * MM_TO_PT
     fig.add_artist(Rectangle(to_fig(x, y + height), width / page_mm[0], height / page_mm[1],
-                             transform=fig.transFigure, facecolor='white', edgecolor='black',
+                             transform=fig.transFigure, facecolor=PAGE_FACE, edgecolor=INK,
                              linewidth=frame_w, zorder=10))
     cy = y + box
     fig.text(*to_fig(x + box, cy), legend_layer['legend_title'], va='top', ha='left',
@@ -840,6 +841,10 @@ def main():
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
     parser.add_argument('--road-edge-rgb', default='255,255,255', help='Colour of --road-edge-mm lines')
+    parser.add_argument('--page-rgb', default=None,
+                        help="Page colour around the map, legend box fill (dark mode), e.g. '14,14,18'")
+    parser.add_argument('--ink-rgb', default=None,
+                        help="Text, legend frame and map frame colour (dark mode), e.g. '230,230,235'")
     parser.add_argument('--bg-rgb', default=None,
                         help="Map background (land) RGB instead of the layout's, e.g. '240,240,240'")
     parser.add_argument('--road-edge-mm', type=float, default=0,
@@ -849,7 +854,13 @@ def main():
     args = parser.parse_args()
 
     city = get_city(args.city)
-    global ENGINE
+    global ENGINE, PAGE_FACE, INK
+    if args.page_rgb:
+        PAGE_FACE = tuple(int(v) / 255 for v in args.page_rgb.split(','))
+    if args.ink_rgb:
+        INK = tuple(int(v) / 255 for v in args.ink_rgb.split(','))
+    plt.rcParams['text.color'] = INK
+    plt.rcParams['axes.edgecolor'] = INK
     ENGINE = args.engine
     register_fonts()
     root = load_project(Path(args.project))
@@ -1073,7 +1084,7 @@ def main():
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
-    fig.patch.set_facecolor('white')
+    fig.patch.set_facecolor(PAGE_FACE)
 
     def to_fig(x_mm, y_mm):  # page mm (top-left origin) -> figure fraction
         return x_mm / page_mm[0], 1 - y_mm / page_mm[1]
@@ -1119,7 +1130,7 @@ def main():
     from datetime import datetime as _dt
     fd, tmp = tempfile.mkstemp(suffix=out.suffix)
     os.close(fd)
-    fig.savefig(tmp, dpi=dpi, facecolor='white')
+    fig.savefig(tmp, dpi=dpi, facecolor=PAGE_FACE)
     plt.close(fig)
     for attempt in range(6):  # locks from sync / thumbnailers are usually brief
         try:
