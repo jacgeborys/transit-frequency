@@ -222,8 +222,15 @@ FONT_DIRS = [Path(os.environ.get('LOCALAPPDATA', '')) / 'Microsoft' / 'Windows' 
 PT_MM = 25.4 / 72
 
 
+POSTER_FONT = 'bahnschrift'  # --poster-font: 'bahnschrift' (DIN-like, Windows) or 'inter'
+
+
 def inter(weight, size_pt, optical='24pt'):
-    """Inter (installed per-user) at a given weight, e.g. 'Black', 'SemiBold', 'Regular'."""
+    """Poster font: Bahnschrift (one weight) or Inter at a given weight ('Black', 'SemiBold', ...)."""
+    if POSTER_FONT == 'bahnschrift':
+        for d in FONT_DIRS:
+            if (d / 'bahnschrift.ttf').exists():
+                return font_manager.FontProperties(fname=str(d / 'bahnschrift.ttf'), size=size_pt)
     for d in FONT_DIRS:
         f = d / f'Inter_{optical}-{weight}.ttf'
         if f.exists():
@@ -956,6 +963,8 @@ def main():
                         help="Poster header: big city name (top-left), e.g. 'WARSZAWA'; replaces the layout title")
     parser.add_argument('--headline', default=None, help='Poster header: question / title next to the city name')
     parser.add_argument('--subline', default=None, help="Poster header: small line under the title ({date} = --date)")
+    parser.add_argument('--poster-font', default='bahnschrift', choices=['bahnschrift', 'inter'],
+                        help='Font of the poster header / legend / scale bar (with --headline-city)')
     parser.add_argument('--legend-title', default=None, help="Override the legend title, e.g. 'Abfahrten/Tag'")
     parser.add_argument('--scale-bar', action='store_true', help='Draw a km scale bar (bottom-right)')
     parser.add_argument('--page-rgb', default=None,
@@ -971,8 +980,9 @@ def main():
     args = parser.parse_args()
 
     city = get_city(args.city)
-    global ENGINE, PAGE_FACE, INK, PALETTE_EXTEND, USE_INTER
+    global ENGINE, PAGE_FACE, INK, PALETTE_EXTEND, USE_INTER, POSTER_FONT
     USE_INTER = bool(args.headline_city)
+    POSTER_FONT = args.poster_font
     PALETTE_EXTEND = args.palette_extend.split(',') if args.palette_extend else None
     if args.page_rgb:
         PAGE_FACE = tuple(int(v) / 255 for v in args.page_rgb.split(','))
