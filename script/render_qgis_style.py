@@ -890,7 +890,7 @@ def main():
         labels, legend_item = [], None
         print(f"  crop preview: {cw:g} x {ch:g} m around {lat:.4f}, {lon:.4f}")
     map_px = (int(round(mw / MM_PER_INCH * dpi)), int(round(mh / MM_PER_INCH * dpi)))
-    print(f"Layout {city['qgis_layout']}: page {page_mm[0]}x{page_mm[1]} mm, "
+    print(f"Layout {tmpl['qgis_layout']}: page {page_mm[0]}x{page_mm[1]} mm, "
           f"map {map_px[0]}x{map_px[1]} px at {dpi:g} dpi")
 
     # Layer stack
