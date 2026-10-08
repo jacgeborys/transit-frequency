@@ -62,9 +62,15 @@ def main():
     fig, ax = plt.subplots(figsize=(11, 11))
     bld = gpd.read_file(osm / 'buildings.gpkg', bbox=b4).to_crs(crs)
     bld.plot(ax=ax, color='#d4d4d4')
+    # One shape per class (stacked translucent stops would blur pale into dark)
+    pub_u = pub.geometry.unary_union if len(pub) else None
     if len(res):
-        res.plot(ax=ax, color='#f6c1d6', alpha=0.5)
-    pub.plot(ax=ax, color='#c2185b', alpha=0.35)
+        res_only = res.geometry.unary_union
+        if pub_u is not None:
+            res_only = res_only.difference(pub_u)
+        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f8cfe0')
+    if pub_u is not None:
+        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#d96b97')
     bld.boundary.plot(ax=ax, color='#4a4a4a', lw=0.6)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
