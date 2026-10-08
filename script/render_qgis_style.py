@@ -542,6 +542,14 @@ def render_layer_rgba(gdf, renderer, extent, size_px, dpi):
     return layer
 
 
+MAJOR_ROADS = {
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+    'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+    # BDOT-style classes in the older Warsaw road layer
+    'ekspresowa', 'glownaRuchuPrzyspieszonego', 'glowna', 'zbiorcza',
+}
+
+
 def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0, 1.0)):
     """Thin opaque outline along both edges of each drawn road (at its symbol width)."""
     from affine import Affine
@@ -553,6 +561,10 @@ def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0,
     transform = Affine((x1 - x0) / W, 0, x0, 0, -(y1 - y0) / H, y1)
     m_per_mm = (x1 - x0) / W * (dpi * ss / MM_PER_INCH)
     layer = np.zeros((h, w, 4), dtype=np.float32)
+    if 'highway' in gdf.columns:  # main roads only (tertiary and above)
+        gdf = gdf[gdf['highway'].isin(MAJOR_ROADS)]
+    if gdf.empty:
+        return layer
     syms = assign_symbols(gdf, renderer)
     geoms_all = gdf.geometry.to_numpy()
     edges = []
@@ -562,8 +574,10 @@ def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0,
             if cls != 'SimpleLine' or p.get('line_style', 'solid') == 'no':
                 continue
             half = float(p.get('line_width', 0.26)) * m_per_mm / 2
-            road = shapely.buffer(geoms_all[m], half, cap_style='flat', join_style='bevel')
-            edges.append(shapely.buffer(shapely.boundary(road), edge_mm * m_per_mm / 2))
+            # Two side lines (offset curves): edges along the road, nothing across its ends
+            for side in (half, -half):
+                sides = shapely.offset_curve(geoms_all[m], side, join_style='mitre', mitre_limit=2.0)
+                edges.append(shapely.buffer(sides, edge_mm * m_per_mm / 2, cap_style='flat'))
     edges = [g for arr in edges for g in arr if g is not None and not g.is_empty]
     if not edges:
         return layer
@@ -797,7 +811,8 @@ def main():
                         help="Recolour parks/forests/grass etc. (fill RGB, alpha kept), "
                              "e.g. '236,239,236' for a very light grey-green")
     parser.add_argument('--road-edge-mm', type=float, default=0,
-                        help='Thin opaque white outline along road edges, width in mm (e.g. 0.1)')
+                        help='Thin opaque white lines along both sides of main roads (tertiary and above), '
+                             'width in mm (e.g. 0.1); no caps across road ends')
     parser.add_argument('--project', default=str(PROJECT_FILE))
     args = parser.parse_args()
 
