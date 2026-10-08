@@ -1,0 +1,5 @@
+{
+  "_comment": "Machine-level overrides read at startup by 03 and 04 (lets long batch chains speed up without restarting). Lower these if the PC is in use.",
+  "min_workers": 12,
+  "min_free_gb": 1.5
+}

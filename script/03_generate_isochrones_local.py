@@ -504,6 +504,14 @@ def main():
                         help=f'Parallel worker processes (default {DEFAULT_WORKERS}; 1 = serial)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
+    _rt = Path(__file__).resolve().parent / 'runtime.json'  # machine-level overrides
+    if _rt.exists():
+        import json
+        _cfg = json.loads(_rt.read_text(encoding='utf-8'))
+        args.workers = max(args.workers, int(_cfg.get('min_workers', 0)))
+        if 'min_free_gb' in _cfg:
+            globals()['MIN_FREE_GB'] = float(_cfg['min_free_gb'])
+        print(f"runtime.json: workers={args.workers}, min_free_gb={_cfg.get('min_free_gb', '-')}")
 
     city = get_city(args.city)
     crs_metric = city['crs_metric']
