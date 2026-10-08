@@ -45,13 +45,30 @@ Full city reruns are slow (coverage step: Warsaw ~2x20 min, Berlin ~2x30 min). W
 
 ## Rendering the published maps
 
-The PNGs in `png/` come from print layouts in `transit-frequency-map.qgz` (one per city;
-the layout maps show whichever layer-tree group under `Tlo` is visible). Export headless,
-leaving the project file unmodified:
+**Current product = dark poster**: `python script/render_poster.py --city <city>` (300 dpi;
+`--dpi 150` for working renders). It wraps `script/render_qgis_style.py`, a standalone
+re-implementation of the QGIS print layouts in `transit-frequency-map.qgz` (it reads the
+project for layout, styles and layer stack; cities without a layout use `template` from
+cities.py). Header texts per city: `POSTER` in render_poster.py. Renders write via the
+system temp folder (OneDrive locks fresh files in png/).
 
-```
-"C:\Program Files\QGIS 3.28.3\bin\python-qgis.bat" script\export_layout.py --city warsaw ^
-    --coverage _data\warsaw\<folder>\coverage_map.gpkg --date DD.MM.YYYY --out png\<name>.png
-```
+Style experiments: `script/_style_grid.py --set light|dark --crop lon,lat,w_m,h_m --name N`
+renders one crop in many variants side by side (png/previews/style_grid_N.png). Crops are
+small at layout scale: use `--dpi 200-500` for them.
 
-`script/render_map.py` is a separate dark-theme matplotlib render, not the published style.
+Old route (exact QGIS export, project untouched):
+`"C:\Program Files\QGIS 3.28.3in\python-qgis.bat" script\export_layout.py --city warsaw
+--coverage ... --date DD.MM.YYYY --out png\<name>.png`. `script/render_map.py` is an old
+unrelated matplotlib render.
+
+## Running long jobs on this machine
+
+- 15 GB RAM; the user often has PyCharm open (~4 GB). Check free RAM before heavy steps.
+- Run multi-step chains as a `.cmd` started detached (`Start-Process cmd -ArgumentList
+  '/c','"<file>.cmd"' -WindowStyle Hidden`), so they survive the session. **The .cmd must
+  have CRLF line endings** (LF-only files silently never start) and, if it contains
+  Polish/German characters, be UTF-8 with `chcp 65001 >nul` at the top. Verify it started
+  (log line or `python.exe` process) right after launching.
+- Log chain milestones to `png/log_buildings_final.txt` and watch them with a Monitor.
+- Save every render/preview as PNG (previews in `png/previews/`); working renders 150 dpi,
+  300 dpi only for requested finals.

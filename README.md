@@ -13,59 +13,58 @@ Supports multiple cities — all scripts accept `--city <name>`.
 | **Gdansk** | ZTM Gdansk | City proper (bbox excludes Gdynia/Sopot) |
 | **Berlin** | VBB GTFS | U/S-Bahn, trams, buses |
 
-## Status
+## Status (2026-10-09)
 
-**October 2026 refresh (2026-10-04 … 10-06):** Warsaw and Kraków recomputed for
-**Wednesday 07.10.2026** (school-term weekday). Warsaw: 886k departures vs 771k in the
-August (summer-timetable) map. Kraków: 283k departures.
+**Current product: dark posters**, 300 dpi, one per city, all for Wednesday 07.10.2026:
 
-Map variants now produced (Warsaw + Kraków, `png/how_many_rides_in_5_mins[_krakow]_2026_10_07*.png`):
-
-| Variant | Files | Method |
+| City | File | Data folder |
 |---|---|---|
-| baseline | `…_2026_10_07.png` | 50 m buffer around the reachable network (old method) |
-| barriers | `…_barriers.png` | fences/walls block, buildings enterable 10 m (Kraków only; Warsaw barrier-only rerun skipped) |
-| gates | `…_gates.png` | barriers + closed gates/private paths; restricted areas drawn pale |
+| Warsaw | `png/how_many_rides_in_5_mins_2026_10_07_dark_bmy_bright_hq.png` | `_data/warsaw/2026_10_04` |
+| Kraków | `png/how_many_rides_in_5_mins_krakow_2026_10_07_dark_bmy_bright_hq.png` | `_data/krakow/2026_10_04` |
+| Berlin | `png/how_many_rides_in_5_mins_berlin_2026_10_07_dark_bmy_bright_hq.png` | `_data/berlin/2026_10_07` |
 
-Covered area, Kraków: baseline 16,620 ha → barriers 15,400 ha → gates public 14,015 ha
-(+~950 ha restricted-only). Warsaw baseline: 28,413 ha.
+Render one with `python script/render_poster.py --city <city>` (style + header texts live
+there). Pipeline variant: `--gates` isochrones + `05_building_values.py` (buildings coloured
+by their best frequency, buildings behind fences painted from the residents-only coverage).
+Style: near-black page/land, palette `bmy_dark` with a perceived-lightness floor
+(`--min-lightness 34`, CIE L*: every class lighter than unserved buildings) and a brighter
+top (`--palette-extend "#fff38a,#fffbd6"`), coverage fill 0.42, Bahnschrift header with a
+big city name + question + date line, km scale bar opposite the legend.
+Thumbnails of every map: `png/previews/*_thumb.png`.
 
-**Warsaw walking network rebuilt 2026-10-06** with `02_fetch_walking_network.py`
-(1.23 M nodes, 2.78 M edges, unsimplified, includes `access=private` paths). The old
-February OSMnx network (simplified, no private paths) is kept as
-`network/warsaw/walking_network_osmnx_2026_02.*.bak`. The Warsaw *baseline* map still
-uses the old network.
+Also available: light chroma maps `…_gates_buildings_chroma.png` (all three cities), other
+dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
+`png/previews/style_grid_*.png` (`script/_style_grid.py`), header font samples
+(`script/_font_samples.py`), diagnostic access sketches `png/previews/sketch_*.png`
+(`script/sketch_access.py`).
 
-**Current product (2026-10-07):** `png/how_many_rides_in_5_mins[_krakow]_2026_10_07_gates_buildings.png`
-— gates variant, buildings coloured by their best frequency (`05_building_values.py`),
-big buildings (> 5,000 m²) show the coverage inside their footprint, restricted areas off.
-Style: QGIS palette, `--building-shade 0.80 --building-saturation 1.5 --coverage-fade 0.45
---uncovered-rgb 170,170,170`, 150 dpi; Warsaw `--extend-left-m 1000 --extend-right-m 1000`.
-Older maps and previews moved to `png/archive/`.
+### Next steps / open ideas
 
-**2026-10-08: access model fixes + chroma maps.** Product renamed to
-`…_gates_buildings_chroma.png` (palette `chroma`, light grey-green greenery
-`--green-rgb 236,239,236`, `--restricted-buildings`, thin white edges on tertiary+ roads
-`--road-edge-mm 0.1`). Fixes this day: fence leak via path cells, gate openings in the
-fence raster, `foot=yes` alone no longer opens a gate, public path islands behind closed
-gates count as private (stadium grounds), restrictive `access` beats `opening_hours`,
-platform roofs (`building=roof/carport`) not drawn as buildings, coverage noding loss.
-Berlin added (template layout = Kraków). Diagnostic sketches in `png/previews/sketch_*`.
-All three cities rerun with every fix (Kraków + Warsaw finished 2026-10-08 21:18).
-Main maps use `--bg-rgb 241,241,241 --forest-rgb 232,236,232` (one step greyer
-background, forests a hair darker, so white road edges stand out). Style comparison
-sheets: `script/_style_grid.py` -> `png/previews/style_grid_*.png`.
-Dark mode (2026-10-08): Warsaw `png/how_many_rides_in_5_mins_2026_10_07_dark_<palette>.png`
-for lava, synthwave, aurora, cyberpunk, bmy_dark (`_style_grid.py --set dark` has the
-exact options: `--bg-rgb 22,23,28 --page-rgb 14,14,18 --ink-rgb 225,225,232 --recolor
-water=… roads=… railways=… buildings=…`, shade 1.0, fade 0.5).
-Favourite: `…_dark_bmy_bright_hq.png` (300 dpi) = `--palette bmy_dark --min-lightness 34
---palette-extend "#fff38a,#fffbd6" --coverage-fade 0.42` on the dark base. `--min-lightness` is
-CIE L*: every class must look lighter than unserved buildings (58,58,64 is L* ~25).
-Posters (2026-10-09, all three cities, 300 dpi): `--headline-city WARSZAWA --headline "Ile
-odjazdów masz w zasięgu 5 minut pieszo?" --subline "dzień powszedni · środa {date}" --scale-bar`
-(Berlin: German, `--legend-title "Abfahrten/Tag"`). Header, legend and scale bar in
-Bahnschrift (`--poster-font`); the scale bar sits in the bottom corner opposite the legend.
+- **Berlin legend is too small**: Berlin borrows Kraków's layout (page twice as wide), the
+  header scales with page width but the legend does not. Make `draw_legend` scale with
+  the page (like `draw_headline`) and re-render Berlin.
+- **New cities** (e.g. Manhattan): see "Adding a new city" below.
+- Readability ideas not done: fewer, wider classes (8-10 instead of 19); faint district
+  labels; a legend line explaining residents-only areas.
+- Heavy rail as a barrier (like fences, with openings at level crossings; skip
+  bridge/tunnel segments) was discussed, not implemented.
+
+### History
+
+- 2026-10-04…06: Warsaw + Kraków recomputed for 07.10.2026 (school-term weekday; Warsaw
+  886k departures vs 771k in the August summer timetable). Warsaw walking network rebuilt
+  with `02_fetch_walking_network.py` (1.23 M nodes, incl. `access=private` paths); old
+  OSMnx network kept as `network/warsaw/walking_network_osmnx_2026_02.*.bak`.
+  Variants: baseline (50 m buffer), barriers, gates (Kraków covered area: 16,620 → 15,400
+  → 14,015 ha public).
+- 2026-10-07: buildings coloured by best frequency; standalone renderer replaces QGIS export.
+- 2026-10-08: access-model fixes (fence leak via path cells, gate openings in the fence
+  raster, `foot=yes` alone no longer opens a gate, public path islands behind closed gates
+  count as private, restrictive `access` beats `opening_hours`, roofs/carports not drawn
+  as buildings, coverage noding loss). Berlin added. Incremental coverage cache.
+  Light chroma maps; dark mode explored.
+- 2026-10-09: dark bmy_bright posters for all three cities; National Stadium fix (big
+  buildings show residents-only coverage).
 
 ## Architecture
 
@@ -96,6 +95,7 @@ render_qgis_style.py                    -- Standalone re-implementation of the Q
       [--residents] [--buildings] [--palette] [--crop lon,lat,w,h] [--extend-left/right-m]
       (layer cache in cache/render/, rasterio drawing; a city renders in ~1-7 min;
       PNG written to system temp then copied into png/ - OneDrive locks fresh files)
+render_poster.py --city C [--dpi]      -- Current product: dark bmy_bright poster (wraps the above)
 sketch_access.py --city C --stop REGEX  -- Diagnostic access sketch around a stop
       [--recompute] [--name] [--suffix]    (--recompute: current rules, just these stops)
 export_layout.py (QGIS python)          -- Exact export of the QGIS layout, project untouched
@@ -126,19 +126,50 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
   ways, e.g. stadium grounds, gated estates; < 5,000 nodes, not the main network) are
   reclassified private, so residents can walk them and stops never snap onto them.
 
-## Quick start (new city)
+## Adding a new city
+
+1. **Config** in `script/cities.py`: `name`, `bbox`, `crs_metric` (a *metre*-based CRS: UTM
+   zone or national grid), `gtfs` feed URL(s) + `gtfs_merge` ('single' or a merge mode),
+   `vehicle_classify` (route -> bus/tram/train/metro), `has_frequencies` (feed uses
+   frequencies.txt), `network_tiles` (Overpass tile grid; denser city -> more tiles),
+   `template: 'krakow'` (no QGIS layout of its own: borrow Kraków's layout + styles).
+2. **Poster texts**: add an entry to `POSTER` in `script/render_poster.py` (city name,
+   language; English template `EN` is there).
+3. **Run** (from `script/`; heavy steps one at a time, detached, see below):
 
 ```bash
-cd script
-python 00_download_gtfs.py --city poznan
-python 01_calculate_trip_counts.py --city poznan YYYYMMDD
-python 02_fetch_walking_network.py --city poznan
-python 03_generate_isochrones_local.py --city poznan [--gates]
-python 04_create_coverage_map.py --city poznan [--variant gates]
-python D:\QGIS\osm_basemap\fetch_osm_basemap.py --city poznan
-python render_qgis_style.py --city poznan --coverage ../_data/poznan/<folder>/coverage_map.gpkg \
-    --date DD.MM.YYYY --out ../png/<name>.png
+python 00_download_gtfs.py --city X
+python 01_calculate_trip_counts.py --city X YYYYMMDD ../_data/X/<folder>   # a school-term Wednesday
+python D:/QGIS/osm_basemap/fetch_osm_basemap.py --city X                    # basemap incl. barriers, gates, private_ways, buildings
+python 02_fetch_walking_network.py --city X
+python 03_generate_isochrones_local.py --city X --gates ../_data/X/<folder>
+python 04_create_coverage_map.py --city X --variant gates ../_data/X/<folder>
+python 04_create_coverage_map.py --city X --variant gates_residents ../_data/X/<folder>
+python 05_building_values.py --city X --variant gates ../_data/X/<folder>
+python render_poster.py --city X --date DD.MM.YYYY
 ```
+
+4. **Check** a few busy stops with `sketch_access.py --city X --stop "^Name$"` before
+   trusting the map (access tagging differs between countries).
+
+**Notes for Manhattan / New York** (not started):
+- GTFS: MTA publishes separate feeds - subway, and buses per borough (Manhattan, Bronx,
+  Brooklyn, Queens, Staten Island) plus MTA Bus Company; also PATH, LIRR, Metro-North,
+  NYC Ferry. Needs a multi-feed merge like Warsaw (check `route_id`/`stop_id` collisions
+  between feeds; prefix ids per feed). Some feeds have high `frequencies.txt`-style
+  service; verify trip counts per stop look sane (Times Sq should be very high).
+- Bbox: Manhattan alone is narrow; include a margin (Jersey City, Long Island City,
+  south Bronx) so edge stops' isochrones aren't cut, then crop the render if wanted.
+- CRS: use UTM 18N `EPSG:32618` (metres). Avoid NY State Plane `EPSG:2263` (US feet) -
+  the pipeline assumes metres everywhere.
+- OSM access tags: US gates/fences are tagged differently; expect many untagged gates in
+  parks (rule: untagged gates near parks are open) and `access=private` on building
+  courtyards. Check sketches around Central Park, Stuyvesant Town, Battery Park City.
+- Basemap: very dense buildings; `fetch_osm_basemap.py` tiles buildings, should be fine.
+  Water is large (rivers/harbour): the dark water colour matters for the look.
+- Poster header in English (`EN` in `render_poster.py`), US-style date may be preferred.
+- No QGIS layout: `template: 'krakow'` gives a landscape page; Manhattan is tall and
+  narrow, so a portrait template (`'warsaw'`) is probably the better fit.
 
 ## Running on this machine (15 GB RAM)
 
