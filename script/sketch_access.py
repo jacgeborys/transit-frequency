@@ -58,10 +58,12 @@ def main():
     res = res[res.stop_id.isin(ids)]
 
     fig, ax = plt.subplots(figsize=(11, 11))
-    gpd.read_file(osm / 'buildings.gpkg', bbox=b4).to_crs(crs).plot(ax=ax, color='#c8c8c8')
+    bld = gpd.read_file(osm / 'buildings.gpkg', bbox=b4).to_crs(crs)
+    bld.plot(ax=ax, color='#d4d4d4')
     if len(res):
         res.plot(ax=ax, color='#f6c1d6', alpha=0.5)
     pub.plot(ax=ax, color='#c2185b', alpha=0.35)
+    bld.boundary.plot(ax=ax, color='#4a4a4a', lw=0.6)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
         fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#1b5e20', lw=1)

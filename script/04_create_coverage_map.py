@@ -44,7 +44,7 @@ from cities import get_city, add_city_argument
 
 TILE_M = 1500          # tile edge length in metres
 SNAP_M = 0.01          # precision grid; makes both sides of a tile edge identical
-DEFAULT_WORKERS = max(1, min(3, (os.cpu_count() or 2) - 2))
+DEFAULT_WORKERS = max(1, min(6, (os.cpu_count() or 2) - 2))  # RAM guard (MIN_FREE_GB) throttles if memory runs low
 MIN_FREE_GB = 3.0      # pause dispatching new tiles below this much available RAM
 
 
