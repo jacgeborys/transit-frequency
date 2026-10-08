@@ -17,6 +17,7 @@ Usage:
     For a 1:1 QGIS export use export_layout.py instead (needs QGIS installed).
 """
 import argparse
+import os
 import pickle
 import re
 import zipfile
@@ -1060,18 +1061,27 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     # Save via a temp file; if the target is locked (open in a viewer / OneDrive sync),
     # keep the render under a timestamped name instead of failing
-    import os
+    # The temp file lives outside OneDrive (syncing locks fresh files there)
+    import shutil
+    import tempfile
+    import time
     from datetime import datetime as _dt
-    tmp = out.with_name(out.stem + '.tmp' + out.suffix)
+    fd, tmp = tempfile.mkstemp(suffix=out.suffix)
+    os.close(fd)
     fig.savefig(tmp, dpi=dpi, facecolor='white')
-    try:
-        os.replace(tmp, out)
-    except OSError:
+    plt.close(fig)
+    for attempt in range(6):  # locks from sync / thumbnailers are usually brief
+        try:
+            shutil.copyfile(tmp, out)
+            break
+        except OSError:
+            time.sleep(5)
+    else:
         alt = out.with_name(f"{out.stem}_{_dt.now():%H%M}{out.suffix}")
-        os.replace(tmp, alt)
+        shutil.copyfile(tmp, alt)
         print(f"  ({out.name} is locked - saved as {alt.name})")
         out = alt
-    plt.close(fig)
+    os.remove(tmp)
     print(f"Saved {out}")
 
 
