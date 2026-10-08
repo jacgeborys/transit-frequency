@@ -325,7 +325,10 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
         return None
 
     costs = grid.costs_lookup[win]
-    costs[seeds] = 1.0
+    # Path cells are passable (passages through buildings) - but never on a fence/wall
+    # cell: a sidewalk running along a fence would otherwise punch holes in it
+    fence = win == BARRIER
+    costs[seeds & ~fence] = 1.0
     max_cells = BUFFER_M / CELL_M
     cum, _ = MCP_Geometric(costs).find_costs(np.argwhere(seeds),
                                              max_cumulative_cost=max_cells)
@@ -337,8 +340,7 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
     # cells from a second run where buildings are passable.
     building = win == BUILDING
     if building.any():
-        costs_in = np.where(win == BARRIER, np.inf, 1.0)
-        costs_in[seeds] = 1.0
+        costs_in = np.where(fence, np.inf, 1.0)
         cum_in, _ = MCP_Geometric(costs_in).find_costs(np.argwhere(seeds),
                                                        max_cumulative_cost=max_cells)
         reached |= building & (cum_in <= max_cells)
