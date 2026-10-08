@@ -59,6 +59,9 @@ Dark mode (2026-10-08): Warsaw `png/how_many_rides_in_5_mins_2026_10_07_dark_<pa
 for lava, synthwave, aurora, cyberpunk, bmy_dark (`_style_grid.py --set dark` has the
 exact options: `--bg-rgb 22,23,28 --page-rgb 14,14,18 --ink-rgb 225,225,232 --recolor
 water=… roads=… railways=… buildings=…`, shade 1.0, fade 0.5).
+Favourite: `…_dark_bmy_bright_hq.png` (300 dpi) = `--palette bmy_dark --min-lightness 34
+--palette-extend "#fff38a,#fffbd6" --coverage-fade 0.42` on the dark base. `--min-lightness` is
+CIE L*: every class must look lighter than unserved buildings (58,58,64 is L* ~25).
 
 ## Architecture
 
