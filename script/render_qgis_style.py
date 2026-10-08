@@ -1102,17 +1102,27 @@ def main():
                 blend(canvas, b_rgba, 'normal')
                 del b_rgba
                 # The isochrones enter big buildings (10 m, plus indoor walkways) but never
-                # cross them: show that actual coverage inside the footprint, building-strength
-                bi, ci = gdf.sindex.query(big.geometry, predicate='intersects')
-                if len(bi):
-                    # OSM footprints can be invalid (self-touching rings); GEOS refuses those
-                    big_geoms = shapely.make_valid(big.geometry.to_numpy())
-                    cov_geoms = gdf.geometry.to_numpy()[ci]
+                # cross them: show that actual coverage inside the footprint, building-strength.
+                # With --restricted-buildings, residents-only coverage first (stadium grounds,
+                # gated campuses), the public coverage on top where it reaches
+                sources = [gdf]
+                res_file = coverage.with_name(coverage.stem + '_residents' + coverage.suffix)
+                if args.restricted_buildings and res_file.exists():
+                    res_cov = read_cached(res_file, map_crs)
+                    res_cov = res_cov[res_cov.intersects(shapely.box(*extent))]
+                    sources.insert(0, res_cov)
+                # OSM footprints can be invalid (self-touching rings); GEOS refuses those
+                big_geoms = shapely.make_valid(big.geometry.to_numpy())
+                for cov in sources:
+                    bi, ci = cov.sindex.query(big.geometry, predicate='intersects')
+                    if not len(bi):
+                        continue
+                    cov_geoms = cov.geometry.to_numpy()[ci]
                     cov_geoms = np.where(shapely.is_valid(cov_geoms), cov_geoms, shapely.make_valid(cov_geoms))
                     inside = gpd.GeoDataFrame(
-                        {'max_trips': gdf['deduped_trips'].to_numpy()[ci]},
+                        {'max_trips': cov['deduped_trips'].to_numpy()[ci]},
                         geometry=shapely.intersection(cov_geoms, big_geoms[bi]),
-                        crs=gdf.crs)
+                        crs=cov.crs)
                     inside = inside[~inside.geometry.is_empty]
                     b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
                     blend(canvas, b_rgba, 'normal')
