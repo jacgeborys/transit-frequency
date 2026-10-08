@@ -55,8 +55,12 @@ BUILDING_RULE = 'oneway'          # buildings: enterable like open space, never 
 EXCLUDED_BUILDING_TYPES = {'roof', 'carport'}  # open structures, walkable underneath
 MIN_HOLE_M2 = 200                 # enclosed holes smaller than this are filled
 MIN_PART_M2 = 50                  # detached fragments smaller than this are dropped
-OPEN, BUILDING, BARRIER = 0, 1, 2
+OPEN, BUILDING, BARRIER, GATE = 0, 1, 2, 3  # GATE: closed gate in a fence, residents only
+GATE_RADIUS_M = 2.5               # opening punched into the fence around a gate node
 EIGHT = np.ones((3, 3), dtype=bool)
+# Raster cost per cell value (OPEN, BUILDING, BARRIER, GATE)
+COSTS_PUBLIC = np.array([1.0, np.inf, np.inf, np.inf])
+COSTS_RESIDENTS = np.array([1.0, np.inf, np.inf, 1.0])
 
 CHECKPOINT_EVERY = 250            # stops per checkpoint chunk (resume after a crash)
 DEFAULT_WORKERS = 3               # RAM-friendly: workers memory-map the shared arrays
@@ -229,7 +233,8 @@ def create_isochrone_buffer(reachable, coords_metric, sparse):
 class BarrierGrid:
     """City-wide raster of OPEN / BUILDING / BARRIER cells in the metric CRS."""
 
-    def __init__(self, city: dict, crs_metric: str, coords_metric: np.ndarray):
+    def __init__(self, city: dict, crs_metric: str, coords_metric: np.ndarray,
+                 closed_gates=None):
         from rasterio.features import rasterize
         from rasterio.transform import from_origin
 
@@ -274,13 +279,32 @@ class BarrierGrid:
         print(f"{len(bar):,} barriers")
         del bar, lines
 
-        self.costs_lookup = np.array([1.0, np.inf, np.inf])
+        # Gates mode: gates punch openings into fences, also where no mapped path
+        # runs through them (front gardens, fenced plots). Open gates for everyone,
+        # closed gates only in the residents run.
+        gates_file = osm_dir / "gates.gpkg"
+        if closed_gates is not None and gates_file.exists():
+            print("  Opening gates in fences...", end=' ', flush=True)
+            gates = gpd.read_file(gates_file).to_crs(crs_metric)
+            closed = gates.osm_id.astype('int64').isin(closed_gates).to_numpy()
+            fence = self.grid == BARRIER
+            for value, sel in ((OPEN, ~closed), (GATE, closed)):
+                if sel.any():
+                    mask = rasterize(((g, 1) for g in gates.geometry[sel].buffer(GATE_RADIUS_M)),
+                                     out_shape=self.grid.shape, transform=transform,
+                                     all_touched=True, dtype=np.uint8).astype(bool)
+                    self.grid[mask & fence] = value
+                    del mask
+            print(f"{(~closed).sum():,} open, {closed.sum():,} closed")
+            del gates, fence
+
+        self.costs_lookup = COSTS_PUBLIC
 
     @classmethod
     def from_array(cls, grid, x0, y1):
         self = cls.__new__(cls)
         self.grid, self.x0, self.y1 = grid, x0, y1
-        self.costs_lookup = np.array([1.0, np.inf, np.inf])
+        self.costs_lookup = COSTS_PUBLIC
         return self
 
     def window(self, minx, miny, maxx, maxy):
@@ -295,22 +319,27 @@ class BarrierGrid:
         return self.grid[r0:r1, c0:c1], transform
 
 
-def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
+def _window_for(reachable, coords_metric, grid):
+    reach_coords = coords_metric[reachable]
+    pad = BUFFER_M + 2 * CELL_M
+    minx, miny = reach_coords.min(axis=0) - pad
+    maxx, maxy = reach_coords.max(axis=0) + pad
+    return grid.window(minx, miny, maxx, maxy)
+
+
+def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=False):
     """
     Barrier-aware isochrone: spread BUFFER_M off the reachable network, but
     fences/walls and buildings block the spread. Buildings are then filled
     in like open space but never exited again (accessible but
-    not passable).
+    not passable). residents=True also lets the spread through closed gates.
     """
     from rasterio.features import rasterize, shapes
     from shapely.geometry import shape
     from skimage.graph import MCP_Geometric
 
     reach_coords = coords_metric[reachable]
-    pad = BUFFER_M + 2 * CELL_M
-    minx, miny = reach_coords.min(axis=0) - pad
-    maxx, maxy = reach_coords.max(axis=0) + pad
-    win, transform = grid.window(minx, miny, maxx, maxy)
+    win, transform = _window_for(reachable, coords_metric, grid)
     if win.size == 0:
         return None
 
@@ -324,7 +353,7 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
     if not seeds.any():
         return None
 
-    costs = grid.costs_lookup[win]
+    costs = (COSTS_RESIDENTS if residents else grid.costs_lookup)[win]
     # Path cells are passable (passages through buildings) - but never on a fence/wall
     # cell: a sidewalk running along a fence would otherwise punch holes in it
     fence = win == BARRIER
@@ -340,14 +369,14 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid):
     # cells from a second run where buildings are passable.
     building = win == BUILDING
     if building.any():
-        costs_in = np.where(fence, np.inf, 1.0)
+        costs_in = np.where(fence | ((win == GATE) & (not residents)), np.inf, 1.0)
         cum_in, _ = MCP_Geometric(costs_in).find_costs(np.argwhere(seeds),
                                                        max_cumulative_cost=max_cells)
         reached |= building & (cum_in <= max_cells)
 
     # Fence cells bordering the reached area count as reached, so a fence
     # crossing open ground doesn't cut a 2 m slit (it still blocked the spread)
-    barrier = win == BARRIER
+    barrier = (win == BARRIER) | (win == GATE)
     if barrier.any():
         reached |= barrier & binary_dilation(reached, structure=EIGHT)
 
@@ -387,8 +416,12 @@ def compute_stop(nn_idx, sx, sy, ctx):
             return None, None
         pub, res = reach
         poly = create_isochrone_barriers(pub, coords, gate_net['public'], grid)
-        poly_res = poly if len(res) == 0 else create_isochrone_barriers(
-            np.concatenate([pub, res]), coords, gate_net['full'], grid)
+        # Residents run: when private paths were reached or closed gates are nearby
+        if len(res) == 0 and not (_window_for(pub, coords, grid)[0] == GATE).any():
+            poly_res = poly
+        else:
+            poly_res = create_isochrone_barriers(
+                np.concatenate([pub, res]), coords, gate_net['full'], grid, residents=True)
         return poly, poly_res
     reachable = reachable_nodes(nn_idx, (sx, sy), coords, ctx['sparse'], DISTANCE_M)
     if reachable is None:
@@ -570,7 +603,8 @@ def main():
     import gc; gc.collect()
     print("  (NetworkX graph freed)\n")
 
-    grid = BarrierGrid(city, crs_metric, coords_metric) if args.barriers else None
+    grid = BarrierGrid(city, crs_metric, coords_metric,
+                       access['closed_gates'] if access else None) if args.barriers else None
 
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
@@ -580,7 +614,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g1"  # bump when access_rules change
+        params += "_g2"  # bump when access_rules change
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

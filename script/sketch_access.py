@@ -31,6 +31,8 @@ def main():
     add_city_argument(parser)
     parser.add_argument('--stop', required=True, help='Stop name (substring, case-insensitive)')
     parser.add_argument('--radius', type=float, default=450, help='Half-width of the view in m')
+    parser.add_argument('--highlight', help='gpkg of polygons to outline in blue (e.g. uncovered plots)')
+    parser.add_argument('--suffix', default='', help='Appended to the output file name')
     parser.add_argument('data_folder', nargs='?')
     args = parser.parse_args()
 
@@ -75,17 +77,22 @@ def main():
     closed = gt[gt.osm_id.astype('int64').isin(closed_gate_ids(osm, crs))]
     if len(closed):
         closed.plot(ax=ax, color='red', marker='x', markersize=60)
+    if args.highlight:
+        hl = gpd.read_file(args.highlight, bbox=b4).to_crs(crs)
+        if len(hl):
+            hl.plot(ax=ax, facecolor='none', edgecolor='#1565c0', hatch='///', lw=1.2, zorder=4)
     stops.plot(ax=ax, color='blue', markersize=80, marker='*', zorder=5)
     ax.set_xlim(bb[0], bb[2])
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
     name = st['stop_name'].iloc[0]
     ax.set_title(f'{name} ({city["name"]}): dark = public isochrones, pale = residents-only, '
-                 f'green = fences, orange = private ways, red x = closed gates, * = stops', fontsize=9)
+                 f'green = fences, orange = private ways, red x = closed gates, * = stops'
+                 + (', blue hatch = highlighted' if args.highlight else ''), fontsize=9)
     import unicodedata
     ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()
     slug = re.sub(r'[^a-z0-9]+', '_', ascii_name).strip('_')
-    out = PROJECT_DIR / 'png' / 'previews' / f'sketch_{city["key"]}_{slug}.png'
+    out = PROJECT_DIR / 'png' / 'previews' / f'sketch_{city["key"]}_{slug}{args.suffix}.png'
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=90, bbox_inches='tight')
     print(f'Saved {out}')
