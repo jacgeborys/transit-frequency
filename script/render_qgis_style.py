@@ -140,6 +140,13 @@ PALETTES = {
 }
 
 
+def lstar(rgb):
+    """Perceived lightness CIE L* (0-100) of an sRGB colour (components 0-1)."""
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb[:3]]
+    y = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    return 116 * y ** (1 / 3) - 16 if y > 0.008856 else 903.3 * y
+
+
 def apply_palette(renderer, name, extend=None, min_lightness=0.0):
     """Recolour a graduated renderer's classes in place with a matplotlib colormap."""
     if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
@@ -172,11 +179,18 @@ def apply_palette(renderer, name, extend=None, min_lightness=0.0):
     syms = [s for _, _, s, _, _ in renderer['ranges']]
     for k, sym_name in enumerate(syms):
         r, g, bl, _ = cmap(a + (b - a) * k / max(1, len(syms) - 1))
-        if min_lightness:
-            # Never darker than the floor (dark mode: lighter than unserved buildings)
+        if min_lightness and lstar((r, g, bl)) < min_lightness:
+            # Never look darker than the floor (dark mode: lighter than unserved buildings).
+            # Perceived lightness (CIE L*), raised via HLS lightness so the hue is kept
             h_, l_, s_ = colorsys.rgb_to_hls(r, g, bl)
-            if l_ < min_lightness:
-                r, g, bl = colorsys.hls_to_rgb(h_, min_lightness, s_)
+            lo, hi = l_, 1.0
+            for _ in range(30):
+                mid = (lo + hi) / 2
+                if lstar(colorsys.hls_to_rgb(h_, mid, s_)) < min_lightness:
+                    lo = mid
+                else:
+                    hi = mid
+            r, g, bl = colorsys.hls_to_rgb(h_, hi, s_)
         for cls, props in renderer['symbols'][sym_name]['layers']:
             if cls == 'SimpleFill':
                 alpha = props['color'].split(',')[3]
@@ -855,8 +869,9 @@ def main():
     parser.add_argument('--palette-extend', default=None,
                         help="Extra colours past the palette top, e.g. '#fff38a,#fffbd6'")
     parser.add_argument('--min-lightness', type=float, default=0.0,
-                        help='Lift class colours to at least this HLS lightness (0-1); in dark mode '
-                             'keeps the lowest classes lighter than unserved buildings')
+                        help='Lift class colours to at least this perceived lightness (CIE L*, 0-100); '
+                             'in dark mode keeps the lowest classes lighter than unserved buildings '
+                             '(--uncovered-rgb 58,58,64 is L* ~25)')
     parser.add_argument('--recolor', action='append', default=[], metavar='LAYER=R,G,B',
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
