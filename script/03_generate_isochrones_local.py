@@ -356,7 +356,8 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=
     costs = (COSTS_RESIDENTS if residents else grid.costs_lookup)[win]
     # Path cells are passable (passages through buildings) - but never on a fence/wall
     # cell: a sidewalk running along a fence would otherwise punch holes in it
-    fence = win == BARRIER
+    # (closed gates count as fence for the public run, same reason)
+    fence = (win == BARRIER) | ((win == GATE) & (not residents))
     costs[seeds & ~fence] = 1.0
     max_cells = BUFFER_M / CELL_M
     cum, _ = MCP_Geometric(costs).find_costs(np.argwhere(seeds),
@@ -369,7 +370,7 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=
     # cells from a second run where buildings are passable.
     building = win == BUILDING
     if building.any():
-        costs_in = np.where(fence | ((win == GATE) & (not residents)), np.inf, 1.0)
+        costs_in = np.where(fence, np.inf, 1.0)
         cum_in, _ = MCP_Geometric(costs_in).find_costs(np.argwhere(seeds),
                                                        max_cumulative_cost=max_cells)
         reached |= building & (cum_in <= max_cells)
@@ -614,7 +615,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g2"  # bump when access_rules change
+        params += "_g3"  # bump when access_rules change
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
