@@ -38,7 +38,7 @@ from shapely.ops import unary_union
 from pyproj import Transformer
 from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix, identity, bmat
-from scipy.sparse.csgraph import dijkstra
+from scipy.sparse.csgraph import dijkstra, connected_components
 from scipy.ndimage import distance_transform_edt, binary_dilation, label
 
 from cities import get_city, add_city_argument
@@ -56,6 +56,7 @@ EXCLUDED_BUILDING_TYPES = {'roof', 'carport'}  # open structures, walkable under
 MIN_HOLE_M2 = 200                 # enclosed holes smaller than this are filled
 MIN_PART_M2 = 50                  # detached fragments smaller than this are dropped
 OPEN, BUILDING, BARRIER, GATE = 0, 1, 2, 3  # GATE: closed gate in a fence, residents only
+ISLAND_MAX_NODES = 5000           # public path islands reachable only via private edges
 GATE_RADIUS_M = 2.5               # opening punched into the fence around a gate node
 EIGHT = np.ones((3, 3), dtype=bool)
 # Raster cost per cell value (OPEN, BUILDING, BARRIER, GATE)
@@ -139,6 +140,21 @@ def convert_to_sparse(G, crs_metric: str, access=None):
 
     # Public / private split for gate-aware routing
     rows, cols, weights, private = map(np.asarray, (rows, cols, weights, private))
+    # Public "islands": untagged paths behind closed gates (stadium grounds, gated
+    # estates) don't connect to the main public network. Nobody from outside can
+    # use them, and residents need them -> treat them as private.
+    pub = ~private
+    _, lab = connected_components(
+        csr_matrix((weights[pub], (rows[pub], cols[pub])), shape=(n_nodes, n_nodes)),
+        directed=False)
+    on_pub = np.zeros(n_nodes, bool)
+    on_pub[rows[pub]] = True
+    on_pub[cols[pub]] = True
+    sizes = np.bincount(lab[on_pub], minlength=lab.max() + 1)
+    island = (sizes < ISLAND_MAX_NODES) & (np.arange(len(sizes)) != sizes.argmax())
+    to_private = pub & island[lab[rows]]
+    private = private | to_private
+    print(f"  Public islands behind gates: {to_private.sum():,} edges reclassified private")
     pub = ~private
     sparse_public = csr_matrix((weights[pub], (rows[pub], cols[pub])), shape=(n_nodes, n_nodes))
     sparse_private = csr_matrix((weights[private], (rows[private], cols[private])),
@@ -615,7 +631,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g4"  # bump when access_rules change
+        params += "_g5"  # bump when access_rules change
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

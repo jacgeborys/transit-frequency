@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--stop', required=True, help='Stop name (substring, case-insensitive)')
     parser.add_argument('--radius', type=float, default=450, help='Half-width of the view in m')
     parser.add_argument('--highlight', help='gpkg of polygons to outline in blue (e.g. uncovered plots)')
+    parser.add_argument('--name', help='Title / file name (default: first matching stop)')
     parser.add_argument('--suffix', default='', help='Appended to the output file name')
     parser.add_argument('data_folder', nargs='?')
     args = parser.parse_args()
@@ -91,7 +92,7 @@ def main():
     ax.set_xlim(bb[0], bb[2])
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
-    name = st['stop_name'].iloc[0]
+    name = args.name or st['stop_name'].iloc[0]
     ax.set_title(f'{name} ({city["name"]}): dark = public isochrones, pale = residents-only, '
                  f'green = fences, orange = private ways, red x = closed gates, * = stops'
                  + (', blue hatch = highlighted' if args.highlight else ''), fontsize=9)

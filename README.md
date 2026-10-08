@@ -91,6 +91,9 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
   in the fence raster (open gates: everyone; closed gates: residents run only), so gates
   without a mapped path through them still connect fenced plots. Path cells never
   override fence or closed-gate cells (sidewalks along fences would leak into plots).
+  Public path "islands" (untagged paths reachable only through closed gates or private
+  ways, e.g. stadium grounds, gated estates; < 5,000 nodes, not the main network) are
+  reclassified private, so residents can walk them and stops never snap onto them.
 
 ## Quick start (new city)
 
