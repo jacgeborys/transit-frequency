@@ -46,6 +46,10 @@ untouched) so small unserved/low-access buildings stay visible. Comparison:
 in metres of that CRS, 8.6 x 12.5 km from Downtown Brooklyn to Central Park north; renderer uses
 both for template cities). New Jersey drops out (no NJ Transit data), LIC/Astoria/Greenpoint come
 in. `legend_corner: 'top-right'` (new city option) puts the legend over Queens.
+Frame since 13:00: 11.6 x 14.5 km, Park Slope/Red Hook .. Central Park north, Hudson .. Jackson
+Heights. Basemap fixes found on the way: water now includes **sea from the coastline** (Harlem
+River, Hell Gate, Flushing/Bowery Bay were missing: in OSM they are only coastline, not water
+areas), and a failed layer no longer passes silently (parks had come back as "No data").
 The bbox was enlarged to contain the rotated frame, so the whole chain reruns; the previous
 north-up data is kept in `D:\QGIS\osm_basemap\manhattan_old_bbox`, `network/manhattan_old_bbox`,
 `_data/manhattan_old_bbox`. GTFS for **Wed 14.10.2026** (LIRR feed is a rolling

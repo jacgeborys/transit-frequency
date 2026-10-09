@@ -8,7 +8,9 @@ where data comes from and how to produce maps.
 1. **`D:\QGIS\osm_basemap\<city>\`**: OSM layers fetched by `D:\QGIS\osm_basemap\fetch_osm_basemap.py`
    (not a git repo). Layers: water, waterways, parks, leisure, forests, grass, meadow,
    allotments, cemeteries, railways, roads, buildings, **barriers** (fences/walls/hedges,
-   closed rings stored as polygons). Add a layer: `--city <c> --only <layer>`; existing
+   closed rings stored as polygons), **sea** (built from `natural=coastline` and appended to
+   water.gpkg: tidal straits like New York's Harlem River are not mapped as water areas).
+   A layer that still fails after retry rounds makes the fetcher exit 1 (no silent "No data"). Add a layer: `--city <c> --only <layer>`; existing
    .gpkg files are skipped, so delete one to refetch it.
 2. **`D:\QGIS\bdot_basemap\<Area>\`**: BDOT10k shapefiles (GUGiK), currently Warszawa only
    (`PL.PZGiK.330.1465__OT_*.shp`, e.g. `OT_BUBD_A` = buildings). Other areas must be
