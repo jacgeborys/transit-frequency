@@ -38,8 +38,8 @@ Since 2026-10-09 (all three 300 dpi finals above re-rendered with it; pre-change
 get an outer casing only (`--road-edge-mm`: widened major roads minus all road surfaces, no
 lines inside junctions), railways darker and thinner (`--line-scale railways=0.6`), and every
 building a 0.05 mm outer halo (`--building-outline-mm`, ring outside the footprint, fills
-untouched) so small unserved/low-access buildings stay visible. The halo is "paint spill" (`--building-outline-spill 0.25`):
-the adjacent building colour lightened 25 % towards white (multi-coloured big buildings: the
+untouched) so small unserved/low-access buildings stay visible. The halo is "paint spill" (`--building-outline-spill 0.35`):
+the adjacent building colour lightened 35 % towards white (multi-coloured big buildings: the
 nearest part), comparison `png/previews/style_grid_spill_zoom.png`. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
 
