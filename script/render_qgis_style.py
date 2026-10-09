@@ -881,7 +881,7 @@ def legend_style(item, name):
 
 
 def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0,
-                shift_y_mm=0.0):
+                shift_y_mm=0.0, corner=None, map_mm=None):
     """Single-column legend: layer title + one patch per renderer class."""
     box = float(item.get('boxSpace', 2))
     sw, sh = float(item.get('symbolWidth', 7)), float(item.get('symbolHeight', 4))
@@ -916,6 +916,11 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     ay_ += shift_y_mm
     x = ax_ - width * (ref % 3) / 2
     y = ay_ - height * (ref // 3) / 2
+    if corner and map_mm:  # city override: pin into a corner of the map, e.g. 'top-right'
+        mx_, my_, mw_, mh_ = map_mm
+        m = LEGEND_PAGE_MARGIN_MM
+        x = mx_ + m if 'left' in corner else mx_ + mw_ - m - width
+        y = my_ + m if 'top' in corner else my_ + mh_ - m - height
     # A longer label (e.g. the residents row) must not push the legend off the page
     x = max(LEGEND_PAGE_MARGIN_MM, min(x, page_mm[0] - LEGEND_PAGE_MARGIN_MM - width))
 
@@ -1360,7 +1365,8 @@ def main():
         apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
         legend_rect = draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
-                    shift_y_mm=legend_dy)
+                    shift_y_mm=legend_dy, corner=city.get('legend_corner'),
+                    map_mm=(mx, my, mw, mh))
 
     legend_rect = locals().get('legend_rect')
     if args.headline_city:

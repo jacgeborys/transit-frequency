@@ -213,9 +213,13 @@ CITIES = {
         'crs_metric': 'EPSG:32618',  # UTM 18N (metres); NY State Plane is in US feet
         # Render rotated so the Hudson is vertical (oblique Mercator, gamma = rotation):
         # Hudson on the left edge, New Jersey left out (no NJ Transit data), Queens on the right
-        'render_crs': ('+proj=omerc +lat_0=40.785 +lonc=-73.965 +alpha=90 +gamma=69 +k_0=1 '
+        # (gamma 69 = Hudson exactly vertical; 66 = island upright, Hudson leaning 3 deg)
+        'render_crs': ('+proj=omerc +lat_0=40.745 +lonc=-73.975 +alpha=90 +gamma=66 +k_0=1 '
                        '+x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs'),
-        'render_frame': (-2300, -10500, 5500, 11100),  # m in render_crs: Battery..Inwood, LIC/Astoria
+        # m in render_crs: Downtown Brooklyn .. Central Park north, Hudson .. LIC/Astoria
+        # (8.6 x 12.5 km; corners checked to lie inside bbox)
+        'render_frame': (-3100, -6100, 5500, 6370),
+        'legend_corner': 'top-right',  # over Queens: bottom-left would cover Lower Manhattan
         'gtfs': {
             'subway': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip',
             'bus_m': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_m.zip',

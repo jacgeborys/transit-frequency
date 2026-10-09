@@ -42,12 +42,13 @@ untouched) so small unserved/low-access buildings stay visible. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
 
 **Manhattan (rerun in progress, 2026-10-09)**: rendered **rotated** so the Hudson is vertical
-(`render_crs` = oblique Mercator with `gamma=69`, `render_frame` in metres of that CRS; renderer
-uses both for template cities). New Jersey drops out (no NJ Transit data), LIC/Astoria come in.
+(`render_crs` = oblique Mercator, `gamma=66`: island upright, Hudson leaning 3°; `render_frame`
+in metres of that CRS, 8.6 x 12.5 km from Downtown Brooklyn to Central Park north; renderer uses
+both for template cities). New Jersey drops out (no NJ Transit data), LIC/Astoria/Greenpoint come
+in. `legend_corner: 'top-right'` (new city option) puts the legend over Queens.
 The bbox was enlarged to contain the rotated frame, so the whole chain reruns; the previous
 north-up data is kept in `D:\QGIS\osm_basemap\manhattan_old_bbox`, `network/manhattan_old_bbox`,
-`_data/manhattan_old_bbox`. To do after the rerun: the legend (bottom-left) covers Lower
-Manhattan in the rotated frame. GTFS for **Wed 14.10.2026** (LIRR feed is a rolling
+`_data/manhattan_old_bbox`. GTFS for **Wed 14.10.2026** (LIRR feed is a rolling
 30-day window from 08.10, so 07.10 was impossible). Basemap fetched; walking network, 03-05 and
 the preview run as a detached chain (logs in `_data/manhattan/2026_10_09/log_*.txt`, milestones
 in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar stretched,
