@@ -13,7 +13,11 @@ where data comes from and how to produce maps.
    A layer that still fails after retry rounds makes the fetcher exit 1 (no silent "No data").
    Both fetchers send Overpass requests through `overpass_polite.py` (waits for a free slot via
    /api/status, backs off after 504s, drops a mirror after 3 failures). The copy next to the
-   basemap fetcher on D: must be kept in sync with `script/overpass_polite.py`. Add a layer: `--city <c> --only <layer>`; existing
+   basemap fetcher on D: must be kept in sync with `script/overpass_polite.py`.
+   **Changing a city's bbox?** Move the old basemap/network folders aside (e.g. `<city>_old_bbox`)
+   and pass `--reuse-from <old dir> --reuse-bbox s,w,n,e` to the basemap fetcher and 02
+   (02 also `--reuse-tiles <old network_tiles>`): only the parts of the new tiles outside the
+   old bbox are downloaded (Manhattan 2026-10-09: 52 % of the area instead of 100 %). Add a layer: `--city <c> --only <layer>`; existing
    .gpkg files are skipped, so delete one to refetch it.
 2. **`D:\QGIS\bdot_basemap\<Area>\`**: BDOT10k shapefiles (GUGiK), currently Warszawa only
    (`PL.PZGiK.330.1465__OT_*.shp`, e.g. `OT_BUBD_A` = buildings). Other areas must be
