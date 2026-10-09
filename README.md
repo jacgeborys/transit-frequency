@@ -45,12 +45,16 @@ the adjacent building colour lightened 35 % towards white (multi-coloured big bu
 nearest part), comparison `png/previews/style_grid_spill_zoom.png`. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
 
-**Lublin (pipeline done 2026-10-09, 150 dpi preview `png/previews/lublin_poster_150.png`)**: Wed **14.10.2026** (the polish_trains feed is a rolling
+**Lublin (300 dpi final `png/how_many_rides_in_5_mins_lublin_2026_10_14_dark_bmy_bright_hq.png`;
+slightly zoomed `render_frame`)**: Wed **14.10.2026** (the polish_trains feed is a rolling
 window from 09.10, 07.10 had 1 train trip). 1,113 stops, 104.9k departures (425 by train); top stops
 KUL / Ogród Saski ~790. Render with `--date 14.10.2026`.
 
-**Manhattan (pipeline done 2026-10-09, 150 dpi preview `png/previews/manhattan_poster_150.png`;
-render with `--date 14.10.2026`)**: rendered **rotated** so the Hudson is vertical
+**Manhattan (300 dpi final `png/how_many_rides_in_5_mins_manhattan_2026_10_14_dark_bmy_bright_hq.png`,
+render with `--date 14.10.2026`)**: underground stations (Times Sq-42 St, Grand Central platforms...)
+are hidden in the drawing via `underground_ids.txt`. Coverage still comes from the run *with* them
+(a clean rerun was stopped after 03, so `isochrones_gates*.gpkg` already exclude them while the
+coverage maps don't); for a fully clean map rerun 04 gates, 04 gates_residents, 05.: rendered **rotated** so the Hudson is vertical
 (`render_crs` = oblique Mercator, `gamma=66`: island upright, Hudson leaning 3°; `render_frame`
 in metres of that CRS, 8.6 x 12.5 km from Downtown Brooklyn to Central Park north; renderer uses
 both for template cities). New Jersey drops out (no NJ Transit data), LIC/Astoria/Greenpoint come
