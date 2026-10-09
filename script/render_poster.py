@@ -30,7 +30,7 @@ STYLE = [
     '--recolor', 'water=26,46,74', '--recolor', 'roads=34,35,42',
     '--recolor', 'railways=58,58,66', '--line-scale', 'railways=0.6',
     '--recolor', 'buildings=45,46,52',
-    '--building-outline-mm', '0.05', '--building-outline-rgb', '95,96,105',
+    '--building-outline-mm', '0.05', '--building-outline-rgb', '95,96,105', '--building-outline-spill', '0.25',
     '--page-rgb', '0,0,0', '--ink-rgb', '225,225,232',
     '--palette', 'bmy_dark', '--min-lightness', '34', '--palette-extend', '#fff38a,#fffbd6',
     '--scale-bar',

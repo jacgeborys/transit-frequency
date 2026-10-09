@@ -1017,6 +1017,9 @@ def main():
                         help='Scale line/outline widths of a layer, e.g. railways=0.6 (repeatable)')
     parser.add_argument('--building-outline-mm', type=float, default=0,
                         help='Thin outline around every building (mm), so small dark ones stay visible')
+    parser.add_argument('--building-outline-spill', type=float, default=0.0,
+                        help='Outline in the adjacent building colour, lightened by this fraction '
+                             'towards white (e.g. 0.25) instead of --building-outline-rgb')
     parser.add_argument('--building-outline-rgb', default='110,111,120,255',
                         help='R,G,B[,A] of --building-outline-mm')
     parser.add_argument('--road-edge-rgb', default='255,255,255', help='Colour of --road-edge-mm lines')
@@ -1321,12 +1324,41 @@ def main():
         def _mask(gs):
             return rasterize(((g, 1) for g in gs), out_shape=(H, W), transform=tr,
                              dtype='uint8').astype(bool)
-        ring = _mask(shapely.buffer(geoms, args.building_outline_mm * m_per_mm)) & ~_mask(geoms)
+        inside = _mask(geoms)
+        ring = _mask(shapely.buffer(geoms, args.building_outline_mm * m_per_mm)) & ~inside
         frac = ring.reshape(map_px[1], ss, map_px[0], ss).mean(axis=(1, 3), dtype=np.float32)
-        b_rgba = np.zeros((map_px[1], map_px[0], 4), dtype=np.float32)
-        _composite_over(b_rgba, frac, parse_color(args.building_outline_rgb + ',255'))
-        blend(canvas, b_rgba, 'normal')
-        del b_rgba, ring
+        inside_frac = inside.reshape(map_px[1], ss, map_px[0], ss).mean(axis=(1, 3), dtype=np.float32)
+        del ring, inside
+        fixed = np.array(parse_color(args.building_outline_rgb + ',255')[:3], dtype=np.float32)
+        if args.building_outline_spill > 0:
+            # "Paint spill": each outline pixel takes the colour of the building pixels next to
+            # it (several colours -> the nearest part), lightened towards white. The ring is
+            # under a pixel wide, so a small neighbourhood average is the nearest colour.
+            from scipy.ndimage import uniform_filter
+            rad = int(np.ceil(args.building_outline_mm / MM_PER_INCH * dpi)) + 1
+            size = 2 * rad + 1
+            wgt = (inside_frac >= 0.5).astype(np.float32)
+            step = 1024
+            for a in range(0, map_px[1], step):
+                lo, hi = max(0, a - rad), min(map_px[1], a + step + rad)
+                f = frac[a:a + step]
+                if not f.any():
+                    continue
+                w = wgt[lo:hi]
+                wsum = uniform_filter(w, size=size, mode='constant')
+                csum = uniform_filter(canvas[lo:hi] * w[..., None], size=(size, size, 1), mode='constant')
+                sl = slice(a - lo, a - lo + f.shape[0])
+                ws = wsum[sl][..., None]
+                col = np.where(ws > 1e-6, csum[sl] / np.maximum(ws, 1e-6), fixed)
+                col = col + (1 - col) * args.building_outline_spill
+                canvas[a:a + step] = canvas[a:a + step] * (1 - f[..., None]) + col * f[..., None]
+            del wgt
+        else:
+            b_rgba = np.zeros((map_px[1], map_px[0], 4), dtype=np.float32)
+            _composite_over(b_rgba, frac, parse_color(args.building_outline_rgb + ',255'))
+            blend(canvas, b_rgba, 'normal')
+            del b_rgba
+        del frac, inside_frac
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
