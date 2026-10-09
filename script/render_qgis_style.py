@@ -687,7 +687,12 @@ MAJOR_ROADS = {
 
 
 def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0, 1.0)):
-    """Thin opaque outline along both edges of each drawn road (at its symbol width)."""
+    """Thin outline along the outer boundary of the main roads (a casing).
+
+    Edge = main roads widened by edge_mm minus the surface of all drawn roads, so the
+    line runs only along the outside: nothing inside junctions, and it stops where a
+    minor road joins.
+    """
     from affine import Affine
     from rasterio.features import rasterize
     w, h = size_px
@@ -697,28 +702,35 @@ def road_edges_rgba(gdf, renderer, extent, size_px, dpi, edge_mm, rgb=(1.0, 1.0,
     transform = Affine((x1 - x0) / W, 0, x0, 0, -(y1 - y0) / H, y1)
     m_per_mm = (x1 - x0) / W * (dpi * ss / MM_PER_INCH)
     layer = np.zeros((h, w, 4), dtype=np.float32)
-    if 'highway' in gdf.columns:  # main roads only (tertiary and above)
-        gdf = gdf[gdf['highway'].isin(MAJOR_ROADS)]
-    if gdf.empty:
-        return layer
     syms = assign_symbols(gdf, renderer)
     geoms_all = gdf.geometry.to_numpy()
-    edges = []
+    major = (gdf['highway'].isin(MAJOR_ROADS).to_numpy() if 'highway' in gdf.columns
+             else np.ones(len(gdf), bool))  # main roads only (tertiary and above)
+    body, outer = [], []
     for sname in set(s for s in syms if s is not None):
         m = syms == sname
         for cls, p in renderer['symbols'][sname]['layers']:
             if cls != 'SimpleLine' or p.get('line_style', 'solid') == 'no':
                 continue
             half = float(p.get('line_width', 0.26)) * m_per_mm / 2
-            # Two side lines (offset curves): edges along the road, nothing across its ends
-            for side in (half, -half):
-                sides = shapely.offset_curve(geoms_all[m], side, join_style='mitre', mitre_limit=2.0)
-                edges.append(shapely.buffer(sides, edge_mm * m_per_mm / 2, cap_style='flat'))
-    edges = [g for arr in edges for g in arr if g is not None and not g.is_empty]
-    if not edges:
+            body.append(shapely.buffer(geoms_all[m], half, cap_style='flat'))
+            if (m & major).any():
+                outer.append(shapely.buffer(geoms_all[m & major], half + edge_mm * m_per_mm,
+                                            cap_style='flat'))
+
+    def mask(arrs):
+        geoms = [g for arr in arrs for g in arr if g is not None and not g.is_empty]
+        if not geoms:
+            return None
+        return rasterize(((g, 1) for g in geoms), out_shape=(H, W), transform=transform,
+                         dtype='uint8').astype(bool)
+
+    o = mask(outer)
+    if o is None:
         return layer
-    mask = rasterize(((g, 1) for g in edges), out_shape=(H, W), transform=transform, dtype='uint8')
-    frac = mask.reshape(h, ss, w, ss).mean(axis=(1, 3), dtype=np.float32)
+    b = mask(body)
+    edge = o & ~b if b is not None else o
+    frac = edge.reshape(h, ss, w, ss).mean(axis=(1, 3), dtype=np.float32)
     _composite_over(layer, frac, (*rgb, 1.0))
     return layer
 
@@ -958,6 +970,12 @@ def main():
     parser.add_argument('--recolor', action='append', default=[], metavar='LAYER=R,G,B',
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
+    parser.add_argument('--line-scale', action='append', default=[], metavar='LAYER=F',
+                        help='Scale line/outline widths of a layer, e.g. railways=0.6 (repeatable)')
+    parser.add_argument('--building-outline-mm', type=float, default=0,
+                        help='Thin outline around every building (mm), so small dark ones stay visible')
+    parser.add_argument('--building-outline-rgb', default='110,111,120,255',
+                        help='R,G,B[,A] of --building-outline-mm')
     parser.add_argument('--road-edge-rgb', default='255,255,255', help='Colour of --road-edge-mm lines')
     parser.add_argument('--headline-city', default=None,
                         help="Poster header: big city name (top-left), e.g. 'WARSZAWA'; replaces the layout title")
@@ -1110,6 +1128,15 @@ def main():
                         for key in ('color', 'outline_color', 'line_color'):
                             if key in props and props[key]:
                                 props[key] = f"{rgb},{props[key].split(',')[3]}"
+    for spec in args.line_scale:
+        stem, f = spec.split('=')
+        for layer in stack:
+            if layer['path'].stem == stem:
+                for sym in layer['renderer']['symbols'].values():
+                    for cls, props in sym['layers']:
+                        for key in ('line_width', 'outline_width'):
+                            if key in props:
+                                props[key] = str(float(props[key]) * float(f))
     coverage = Path(args.coverage).resolve()
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
@@ -1126,6 +1153,9 @@ def main():
         print(f"  buildings: {(~bld['big']).sum():,} coloured, {bld['big'].sum():,} big (grey)")
 
     uncovered_done = False
+    outline_geoms = []  # every drawn building footprint, for --building-outline-mm
+    if bld is not None and args.building_outline_mm > 0:
+        outline_geoms.append(bld.geometry.to_numpy())
 
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
@@ -1154,6 +1184,8 @@ def main():
         print(f"{len(gdf):>8,} features", flush=True)
         if gdf.empty:
             continue
+        if args.building_outline_mm > 0 and layer['path'].name == 'buildings.gpkg':
+            outline_geoms.append(gdf.geometry.to_numpy())
         rgba = render_layer_rgba(gdf, layer['renderer'], extent, map_px, dpi)
         if layer['renderer']['blur_mm'] > 0:
             radius_px = layer['renderer']['blur_mm'] / MM_PER_INCH * dpi
@@ -1220,6 +1252,29 @@ def main():
                     b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
                     blend(canvas, b_rgba, 'normal')
                     del b_rgba
+
+    if outline_geoms:
+        # Outer halo: a thin ring just outside every footprint, fills stay untouched
+        from affine import Affine
+        from rasterio.features import rasterize
+        geoms = np.concatenate(outline_geoms)
+        geoms = geoms[np.isin(shapely.get_type_id(geoms), [3, 6])]  # polygons only
+        geoms = geoms[shapely.intersects(geoms, shapely.box(*extent))]
+        print(f"  building outlines: {len(geoms):,} footprints, {args.building_outline_mm:g} mm")
+        ss = SUPERSAMPLE
+        W, H = map_px[0] * ss, map_px[1] * ss
+        x0, y0, x1, y1 = extent
+        tr = Affine((x1 - x0) / W, 0, x0, 0, -(y1 - y0) / H, y1)
+        m_per_mm = (x1 - x0) / W * (dpi * ss / MM_PER_INCH)
+        def _mask(gs):
+            return rasterize(((g, 1) for g in gs), out_shape=(H, W), transform=tr,
+                             dtype='uint8').astype(bool)
+        ring = _mask(shapely.buffer(geoms, args.building_outline_mm * m_per_mm)) & ~_mask(geoms)
+        frac = ring.reshape(map_px[1], ss, map_px[0], ss).mean(axis=(1, 3), dtype=np.float32)
+        b_rgba = np.zeros((map_px[1], map_px[0], 4), dtype=np.float32)
+        _composite_over(b_rgba, frac, parse_color(args.building_outline_rgb + ',255'))
+        blend(canvas, b_rgba, 'normal')
+        del b_rgba, ring
 
     # Page
     fig = plt.figure(figsize=(page_mm[0] / MM_PER_INCH, page_mm[1] / MM_PER_INCH), dpi=dpi)
