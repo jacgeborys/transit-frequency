@@ -48,6 +48,7 @@ POSTER = {
     'krakow': {'city': 'KRAKÓW', **PL},
     'poznan': {'city': 'POZNAŃ', **PL},
     'gdansk': {'city': 'GDAŃSK', **PL},
+    'lublin': {'city': 'LUBLIN', **PL},
     'berlin': {'city': 'BERLIN', **DE},
     'manhattan': {'city': 'MANHATTAN', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }

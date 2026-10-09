@@ -91,8 +91,8 @@ def _berlin_vehicle(rid):
     return 'bus'
 
 
-def _nyc_vehicle(rid):
-    # Every NYC feed has route_type (used first); this is only the fallback
+def _route_type_only(rid):
+    # Feeds where every route has route_type (used first, see 01): this is only the fallback
     return 'bus'
 
 
@@ -237,10 +237,28 @@ CITIES = {
         'gtfs_groups': {f: 'bus' for f in ('bus_m', 'bus_bx', 'bus_b', 'bus_q', 'bus_co')},
         'gtfs_extend_calendar': {'path'},  # PATH feed expired 2026-06; no newer one published
         'exact_service_match': True,
-        'vehicle_classify': _nyc_vehicle,
+        'vehicle_classify': _route_type_only,
         'has_frequencies': False,
         'network_tiles': 7,
         'template': 'warsaw',  # tall, narrow island: portrait layout
+    },
+
+    'lublin': {
+        'name': 'Lublin',
+        'bbox': {
+            'south': 51.130, 'west': 22.430,
+            'north': 51.310, 'east': 22.700,
+        },
+        'crs_metric': 'EPSG:2180',
+        'gtfs': {
+            'ztm': 'https://mkuran.pl/gtfs/lublin.zip',              # ZDiTM buses + trolleybuses
+            'trains': 'https://mkuran.pl/gtfs/polish_trains.zip',    # clipped to the bbox
+        },
+        'gtfs_merge': 'prefixed',
+        'exact_service_match': True,
+        'vehicle_classify': _route_type_only,
+        'has_frequencies': False,
+        'template': 'krakow',
     },
 }
 
