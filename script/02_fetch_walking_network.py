@@ -21,15 +21,10 @@ from datetime import datetime
 from shapely.geometry import box
 
 from cities import get_city, add_city_argument
+import overpass_polite
 
-# Servers tried in turn; each tile starts on the one that last succeeded and a busy
-# server (429/504) is left at once instead of waited on. overpass-api.de was
-# overloaded (504 even for tiny queries) in 2026-10 while kumi.systems answered;
-# private.coffee and maps.mail.ru were unreachable from here.
-OVERPASS_URLS = ["https://overpass.kumi.systems/api/interpreter",
-                 "https://overpass-api.de/api/interpreter"]
-_good_server = 0  # index of the server that answered last
-ATTEMPTS_PER_TILE = 4
+# Requests go through overpass_polite (slot-aware, backs off, drops failing mirrors)
+ATTEMPTS_PER_TILE = 6
 HEADERS = {'User-Agent': 'QGIS-walking-network/1.0', 'Accept': '*/*'}
 RETRY_ROUNDS = 2  # extra passes over failed tiles before giving up
 
@@ -63,36 +58,10 @@ def fetch_tile_json(tile, cache_dir):
     bbox_str = f"{tile['south']},{tile['west']},{tile['north']},{tile['east']}"
     query = WALK_QUERY.format(bbox=bbox_str)
 
-    global _good_server
-    for attempt in range(ATTEMPTS_PER_TILE):
-        k = (_good_server + attempt) % len(OVERPASS_URLS)
-        url = OVERPASS_URLS[k]
-        try:
-            if attempt > 0:
-                # A fresh server is tried right away; back off only when back on a busy one
-                wait = 20 * (attempt // len(OVERPASS_URLS))
-                host = url.split('/')[2]
-                print(f"retry {attempt} via {host} (wait {wait}s)...", end=" ", flush=True)
-                time.sleep(wait)
-            resp = requests.post(url, data={'data': query},
-                                 headers=HEADERS, timeout=300)
-            if resp.status_code != 200:  # 429 rate limit / 504 overloaded: next server
-                print(f"HTTP {resp.status_code}...", end=" ", flush=True)
-                continue
-            data = resp.json()
-            # A timed-out query can still return 200 with partial data and a remark
-            remark = str(data.get('remark', ''))
-            if 'error' in remark.lower():
-                print(f"partial result ({remark[:50]})...", end=" ", flush=True)
-                continue
-            cache_file.write_text(json.dumps(data), encoding='utf-8')
-            _good_server = k
-            return data
-        except requests.exceptions.Timeout:
-            print(f"timeout...", end=" ", flush=True)
-        except Exception as e:
-            print(f"error: {str(e)[:60]}...", end=" ", flush=True)
-    return None
+    data = overpass_polite.post(query, HEADERS, timeout=300, attempts=ATTEMPTS_PER_TILE)
+    if data is not None:
+        cache_file.write_text(json.dumps(data), encoding='utf-8')
+    return data
 
 
 def build_graph_from_jsons(jsons):

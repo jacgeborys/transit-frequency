@@ -10,7 +10,10 @@ where data comes from and how to produce maps.
    allotments, cemeteries, railways, roads, buildings, **barriers** (fences/walls/hedges,
    closed rings stored as polygons), **sea** (built from `natural=coastline` and appended to
    water.gpkg: tidal straits like New York's Harlem River are not mapped as water areas).
-   A layer that still fails after retry rounds makes the fetcher exit 1 (no silent "No data"). Add a layer: `--city <c> --only <layer>`; existing
+   A layer that still fails after retry rounds makes the fetcher exit 1 (no silent "No data").
+   Both fetchers send Overpass requests through `overpass_polite.py` (waits for a free slot via
+   /api/status, backs off after 504s, drops a mirror after 3 failures). The copy next to the
+   basemap fetcher on D: must be kept in sync with `script/overpass_polite.py`. Add a layer: `--city <c> --only <layer>`; existing
    .gpkg files are skipped, so delete one to refetch it.
 2. **`D:\QGIS\bdot_basemap\<Area>\`**: BDOT10k shapefiles (GUGiK), currently Warszawa only
    (`PL.PZGiK.330.1465__OT_*.shp`, e.g. `OT_BUBD_A` = buildings). Other areas must be
