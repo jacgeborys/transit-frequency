@@ -240,7 +240,7 @@ CITIES = {
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
         'network_tiles': 7,
-        'template': 'warsaw',  # tall, narrow island: portrait layout
+        'template': 'krakow',  # OSM layer stack (Warsaw's uses its old roads.shp); page follows render_frame
     },
 
     'lublin': {

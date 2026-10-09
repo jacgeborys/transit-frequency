@@ -1214,6 +1214,7 @@ def main():
     if bld is not None and underground:
         bld = bld[~bld['osm_id'].astype('int64').isin(underground)]
     uncovered_done = False
+    water_mask = None  # 1 - coloured-building coverage (built on first water layer)
     outline_geoms = []  # every drawn building footprint, for --building-outline-mm
     if bld is not None and args.building_outline_mm > 0:
         outline_geoms.append(bld.geometry.to_numpy())
@@ -1254,6 +1255,13 @@ def main():
             radius_px = layer['renderer']['blur_mm'] / MM_PER_INCH * dpi
             rgba = unpremultiply_blur(rgba, radius_px / 2)
         rgba[..., 3] *= layer['opacity']
+        if bld is not None and layer['path'].stem == 'water':
+            # Coloured buildings are drawn before water (with the coverage layer); buildings
+            # on piers over sea areas (New York's Chelsea Piers) must not be painted over
+            if water_mask is None:
+                water_mask = 1.0 - render_layer_rgba(bld, big_building_renderer('0,0,0'),
+                                                     extent, map_px, dpi)[..., 3]
+            rgba[..., 3] *= water_mask
         if bld is not None and layer['path'] == coverage:
             rgba[..., 3] *= args.coverage_fade
         if args.residents and layer['path'] == coverage:

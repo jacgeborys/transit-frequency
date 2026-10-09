@@ -52,7 +52,9 @@ KUL / Ogród Saski ~790. Render with `--date 14.10.2026`.
 
 **Manhattan (300 dpi final `png/how_many_rides_in_5_mins_manhattan_2026_10_14_dark_bmy_bright_hq.png`,
 render with `--date 14.10.2026`)**: underground stations (Times Sq-42 St, Grand Central platforms...)
-are hidden in the drawing via `underground_ids.txt`. Coverage still comes from the run *with* them
+are hidden in the drawing via `underground_ids.txt`. Template is Kraków's layout (OSM layer stack; Warsaw's
+uses its old `roads.shp`, which drew no roads for Manhattan). Water is masked under coloured
+buildings (Chelsea Piers' buildings stand on piers over the sea areas from the coastline). Coverage still comes from the run *with* them
 (a clean rerun was stopped after 03, so `isochrones_gates*.gpkg` already exclude them while the
 coverage maps don't); for a fully clean map rerun 04 gates, 04 gates_residents, 05.: rendered **rotated** so the Hudson is vertical
 (`render_crs` = oblique Mercator, `gamma=66`: island upright, Hudson leaning 3°; `render_frame`
