@@ -33,14 +33,16 @@ left the 1-80/day fills at L* 1-3 on black, i.e. invisible; Ząbki comparison
 (`--min-lightness 34`, CIE L*: every class lighter than unserved buildings) and a brighter
 top (`--palette-extend "#fff38a,#fffbd6"`), coverage fill 0.42, Bahnschrift header with a
 big city name + question + date line, km scale bar opposite the legend.
-Since 2026-10-09 (not yet in the three 300 dpi finals above, re-render to apply): main roads
+Since 2026-10-09 (all three 300 dpi finals above re-rendered with it; pre-change versions in
+`png/archive/*_no_outline.png`): main roads
 get an outer casing only (`--road-edge-mm`: widened major roads minus all road surfaces, no
 lines inside junctions), railways darker and thinner (`--line-scale railways=0.6`), and every
 building a 0.05 mm outer halo (`--building-outline-mm`, ring outside the footprint, fills
 untouched) so small unserved/low-access buildings stay visible. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
 
-**Manhattan (in progress)**: config + GTFS done for **Wed 14.10.2026** (LIRR feed is a rolling
+**Manhattan (pipeline done, 150 dpi preview `png/previews/manhattan_poster_150.png`; open question:
+how to show New Jersey, which looks unserved without NJ Transit)**: GTFS for **Wed 14.10.2026** (LIRR feed is a rolling
 30-day window from 08.10, so 07.10 was impossible). Basemap fetched; walking network, 03-05 and
 the preview run as a detached chain (logs in `_data/manhattan/2026_10_09/log_*.txt`, milestones
 in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar stretched,
