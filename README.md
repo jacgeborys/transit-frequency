@@ -30,6 +30,19 @@ Style: near-black page/land, palette `bmy_dark` with a perceived-lightness floor
 (`--min-lightness 34`, CIE L*: every class lighter than unserved buildings) and a brighter
 top (`--palette-extend "#fff38a,#fffbd6"`), coverage fill 0.42, Bahnschrift header with a
 big city name + question + date line, km scale bar opposite the legend.
+Since 2026-10-09 (not yet in the three 300 dpi finals above, re-render to apply): main roads
+get an outer casing only (`--road-edge-mm`: widened major roads minus all road surfaces, no
+lines inside junctions), railways darker and thinner (`--line-scale railways=0.6`), and every
+building a 0.05 mm outer halo (`--building-outline-mm`, ring outside the footprint, fills
+untouched) so small unserved/low-access buildings stay visible. Comparison:
+`png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
+
+**Manhattan (in progress)**: config + GTFS done for **Wed 14.10.2026** (LIRR feed is a rolling
+30-day window from 08.10, so 07.10 was impossible). Basemap fetched; walking network, 03-05 and
+the preview run as a detached chain (logs in `_data/manhattan/2026_10_09/log_*.txt`, milestones
+in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar stretched,
+`gtfs_extend_calendar`); no NJ Transit (needs a developer login), so Jersey City/Hoboken look
+under-served.
 Thumbnails of every map: `png/previews/*_thumb.png`.
 
 Also available: light chroma maps `…_gates_buildings_chroma.png` (all three cities), other
@@ -152,7 +165,9 @@ python render_poster.py --city X --date DD.MM.YYYY
 4. **Check** a few busy stops with `sketch_access.py --city X --stop "^Name$"` before
    trusting the map (access tagging differs between countries).
 
-**Notes for Manhattan / New York** (not started):
+**Notes for Manhattan / New York** (implemented as `manhattan`, `gtfs_merge: 'prefixed'`:
+MTA subway + 5 bus feeds sharing one `bus_` id prefix, LIRR, Metro-North, PATH, NYC Ferry;
+stops clipped to the bbox, exact service-id matching):
 - GTFS: MTA publishes separate feeds - subway, and buses per borough (Manhattan, Bronx,
   Brooklyn, Queens, Staten Island) plus MTA Bus Company; also PATH, LIRR, Metro-North,
   NYC Ferry. Needs a multi-feed merge like Warsaw (check `route_id`/`stop_id` collisions
