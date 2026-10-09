@@ -26,7 +26,7 @@ Supports multiple cities — all scripts accept `--city <name>`.
 Render one with `python script/render_poster.py --city <city>` (style + header texts live
 there). Pipeline variant: `--gates` isochrones + `05_building_values.py` (buildings coloured
 by their best frequency, buildings behind fences painted from the residents-only coverage).
-Style: near-black page/land, palette `bmy_dark` with a perceived-lightness floor
+Style: pitch-black page/land (since 2026-10-09; water 26,46,74, parks/forest lifted slightly so they stand out; comparison `png/previews/style_grid_black.png`), palette `bmy_dark` with a perceived-lightness floor
 (`--min-lightness 34`, CIE L*: every class lighter than unserved buildings) and a brighter
 top (`--palette-extend "#fff38a,#fffbd6"`), coverage fill 0.42, Bahnschrift header with a
 big city name + question + date line, km scale bar opposite the legend.

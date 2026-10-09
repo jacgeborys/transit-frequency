@@ -23,15 +23,15 @@ from cities import get_city, PROJECT_DIR
 # Shared dark style (see README "Dark mode" / "Posters")
 STYLE = [
     '--restricted-buildings',
-    '--bg-rgb', '22,23,28', '--green-rgb', '28,36,32', '--forest-rgb', '26,40,33',
+    '--bg-rgb', '0,0,0', '--green-rgb', '30,44,34', '--forest-rgb', '28,50,37',
     '--uncovered-rgb', '58,58,64', '--coverage-fade', '0.42',
     '--building-shade', '1.0', '--building-saturation', '1.1',
     '--road-edge-mm', '0.1', '--road-edge-rgb', '70,72,82',
-    '--recolor', 'water=24,38,58', '--recolor', 'roads=34,35,42',
+    '--recolor', 'water=26,46,74', '--recolor', 'roads=34,35,42',
     '--recolor', 'railways=58,58,66', '--line-scale', 'railways=0.6',
     '--recolor', 'buildings=45,46,52',
     '--building-outline-mm', '0.05', '--building-outline-rgb', '95,96,105',
-    '--page-rgb', '14,14,18', '--ink-rgb', '225,225,232',
+    '--page-rgb', '0,0,0', '--ink-rgb', '225,225,232',
     '--palette', 'bmy_dark', '--min-lightness', '34', '--palette-extend', '#fff38a,#fffbd6',
     '--scale-bar',
 ]
