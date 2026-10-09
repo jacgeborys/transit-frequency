@@ -6,11 +6,13 @@ stations (New York's Times Sq-42 St, Grand Central's platforms), Warszawa Centra
 platform hall, substations, bunkers. Drawn on the map they lie across streets, and the
 access model treats them as buildings you can enter but not cross. The basemap fetcher
 didn't keep the location tag before 2026-10-09, so this asks Overpass for those ids and
-drops them from buildings.gpkg (original kept as buildings_with_underground.gpkg).
+drops them from buildings.gpkg (original kept as buildings_with_underground.gpkg). The ids
+also go to underground_ids.txt, which render_qgis_style.py uses to skip them in every
+building layer it draws (so a render is enough; no rerun of 03-05 needed for the map).
 
 Usage:
     python drop_underground_buildings.py --city manhattan
-Then rerun 03-05 (or only 05 + render if the structures are small).
+Then just render; rerun 03-05 only if the structures matter for access (big stations).
 """
 import argparse
 import shutil
@@ -40,6 +42,8 @@ def main():
     names = sorted({e['tags'].get('name', '') for e in data['elements']} - {''})
     print(f"{len(ids)} underground buildings in OSM: {', '.join(names[:10])}{' ...' if len(names) > 10 else ''}")
 
+    (city['osm_dir'] / 'underground_ids.txt').write_text(
+        ' '.join(str(i) for i in sorted(ids)), encoding='utf-8')
     f = city['osm_dir'] / 'buildings.gpkg'
     backup = city['osm_dir'] / 'buildings_with_underground.gpkg'
     if not backup.exists():

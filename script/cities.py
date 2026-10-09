@@ -259,6 +259,8 @@ CITIES = {
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
         'template': 'krakow',
+        # EPSG:2180 m: 85 % of the bbox, centred between it and the coverage's centre of mass
+        'render_frame': (740050, 370830, 756850, 388630),
     },
 }
 

@@ -1207,6 +1207,12 @@ def main():
         styled_ids = set(bld['osm_id'].astype('int64'))
         print(f"  buildings: {(~bld['big']).sum():,} coloured, {bld['big'].sum():,} big (grey)")
 
+    # Underground structures mapped as buildings (subway stations etc.), listed by
+    # drop_underground_buildings.py: never drawn, whichever building layer holds them
+    ug_file = city['osm_dir'] / 'underground_ids.txt'
+    underground = {int(v) for v in ug_file.read_text().split()} if ug_file.exists() else set()
+    if bld is not None and underground:
+        bld = bld[~bld['osm_id'].astype('int64').isin(underground)]
     uncovered_done = False
     outline_geoms = []  # every drawn building footprint, for --building-outline-mm
     if bld is not None and args.building_outline_mm > 0:
@@ -1224,6 +1230,8 @@ def main():
         mode = BLEND_NAMES.get(layer['blend'], 'normal')
         print(f"  {layer['name']:<20} opacity={layer['opacity']:<5g} blend={mode:<7}", end=' ', flush=True)
         gdf = load_layer_data(layer, extent, map_crs)
+        if underground and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
+            gdf = gdf[~gdf['osm_id'].astype('int64').isin(underground)]
         if bld is not None and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
             gdf = gdf[~gdf['osm_id'].astype('int64').isin(styled_ids)]  # styled separately
             if 'building' in gdf.columns:  # open structures (platform roofs, carports) aren't barriers
