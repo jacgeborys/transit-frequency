@@ -22,9 +22,13 @@ from shapely.geometry import box
 
 from cities import get_city, add_city_argument
 
-# Public mirrors (kumi.systems, private.coffee) were unreachable from here in 2026-10;
-# add them back to this list if the main server keeps failing.
-OVERPASS_URLS = ["https://overpass-api.de/api/interpreter"]
+# Servers tried in turn; each tile starts on the one that last succeeded and a busy
+# server (429/504) is left at once instead of waited on. overpass-api.de was
+# overloaded (504 even for tiny queries) in 2026-10 while kumi.systems answered;
+# private.coffee and maps.mail.ru were unreachable from here.
+OVERPASS_URLS = ["https://overpass.kumi.systems/api/interpreter",
+                 "https://overpass-api.de/api/interpreter"]
+_good_server = 0  # index of the server that answered last
 ATTEMPTS_PER_TILE = 4
 HEADERS = {'User-Agent': 'QGIS-walking-network/1.0', 'Accept': '*/*'}
 RETRY_ROUNDS = 2  # extra passes over failed tiles before giving up
@@ -59,24 +63,21 @@ def fetch_tile_json(tile, cache_dir):
     bbox_str = f"{tile['south']},{tile['west']},{tile['north']},{tile['east']}"
     query = WALK_QUERY.format(bbox=bbox_str)
 
+    global _good_server
     for attempt in range(ATTEMPTS_PER_TILE):
-        url = OVERPASS_URLS[attempt % len(OVERPASS_URLS)]
+        k = (_good_server + attempt) % len(OVERPASS_URLS)
+        url = OVERPASS_URLS[k]
         try:
             if attempt > 0:
-                wait = 20 * attempt
+                # A fresh server is tried right away; back off only when back on a busy one
+                wait = 20 * (attempt // len(OVERPASS_URLS))
                 host = url.split('/')[2]
                 print(f"retry {attempt} via {host} (wait {wait}s)...", end=" ", flush=True)
                 time.sleep(wait)
             resp = requests.post(url, data={'data': query},
                                  headers=HEADERS, timeout=300)
-            if resp.status_code == 429:
-                wait = 60 * (2 ** attempt)
-                print(f"rate-limited, wait {wait}s...", end=" ", flush=True)
-                time.sleep(wait)
-                continue
-            if resp.status_code != 200:
+            if resp.status_code != 200:  # 429 rate limit / 504 overloaded: next server
                 print(f"HTTP {resp.status_code}...", end=" ", flush=True)
-                time.sleep(30)
                 continue
             data = resp.json()
             # A timed-out query can still return 200 with partial data and a remark
@@ -85,6 +86,7 @@ def fetch_tile_json(tile, cache_dir):
                 print(f"partial result ({remark[:50]})...", end=" ", flush=True)
                 continue
             cache_file.write_text(json.dumps(data), encoding='utf-8')
+            _good_server = k
             return data
         except requests.exceptions.Timeout:
             print(f"timeout...", end=" ", flush=True)
@@ -191,6 +193,7 @@ def main():
         failed = []
         for i, tile in enumerate(pending, 1):
             print(f"  [{i}/{len(pending)}] {tile['id']}...", end=" ", flush=True)
+            cached = (cache_dir / f"tile_{tile['id']}.json").exists()
             data = fetch_tile_json(tile, cache_dir)
             if data is not None:
                 n_elems = len(data.get('elements', []))
@@ -200,8 +203,8 @@ def main():
                 print("FAILED")
                 failed.append(tile)
 
-            if i < len(pending):
-                time.sleep(10)
+            if i < len(pending) and not cached:
+                time.sleep(10)  # be polite between real downloads
         pending = failed
         if not pending:
             break
