@@ -207,8 +207,8 @@ CITIES = {
         'name': 'Manhattan',
         # Covers the rotated render frame below (+ ~400 m so edge stops' isochrones are whole)
         'bbox': {
-            'south': 40.674, 'west': -74.040,
-            'north': 40.889, 'east': -73.850,
+            'south': 40.643, 'west': -74.052,
+            'north': 40.813, 'east': -73.848,
         },
         'crs_metric': 'EPSG:32618',  # UTM 18N (metres); NY State Plane is in US feet
         # Render rotated so the Hudson is vertical (oblique Mercator, gamma = rotation):
@@ -216,9 +216,9 @@ CITIES = {
         # (gamma 69 = Hudson exactly vertical; 66 = island upright, Hudson leaning 3 deg)
         'render_crs': ('+proj=omerc +lat_0=40.745 +lonc=-73.975 +alpha=90 +gamma=66 +k_0=1 '
                        '+x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs'),
-        # m in render_crs: Downtown Brooklyn .. Central Park north, Hudson .. LIC/Astoria
-        # (8.6 x 12.5 km; corners checked to lie inside bbox)
-        'render_frame': (-3100, -6100, 5500, 6370),
+        # m in render_crs: Park Slope/Red Hook .. Central Park north, Hudson .. Jackson Heights
+        # (11.6 x 14.5 km; corners checked to lie inside bbox)
+        'render_frame': (-3100, -8100, 8500, 6370),
         'legend_corner': 'top-right',  # over Queens: bottom-left would cover Lower Manhattan
         'gtfs': {
             'subway': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip',
