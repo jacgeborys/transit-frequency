@@ -45,12 +45,12 @@ the adjacent building colour lightened 35 % towards white (multi-coloured big bu
 nearest part), comparison `png/previews/style_grid_spill_zoom.png`. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
 
-**Lublin (in progress, 2026-10-09)**: Wed **14.10.2026** (the polish_trains feed is a rolling
+**Lublin (pipeline done 2026-10-09, 150 dpi preview `png/previews/lublin_poster_150.png`)**: Wed **14.10.2026** (the polish_trains feed is a rolling
 window from 09.10, 07.10 had 1 train trip). 1,113 stops, 104.9k departures (425 by train); top stops
-KUL / Ogród Saski ~790. Chain runs its downloads now, heavy steps wait for Manhattan's chain to end.
-The chain's preview is labelled 07.10 by mistake: re-render with `--date 14.10.2026`.
+KUL / Ogród Saski ~790. Render with `--date 14.10.2026`.
 
-**Manhattan (rerun in progress, 2026-10-09)**: rendered **rotated** so the Hudson is vertical
+**Manhattan (pipeline done 2026-10-09, 150 dpi preview `png/previews/manhattan_poster_150.png`;
+render with `--date 14.10.2026`)**: rendered **rotated** so the Hudson is vertical
 (`render_crs` = oblique Mercator, `gamma=66`: island upright, Hudson leaning 3°; `render_frame`
 in metres of that CRS, 8.6 x 12.5 km from Downtown Brooklyn to Central Park north; renderer uses
 both for template cities). New Jersey drops out (no NJ Transit data), LIC/Astoria/Greenpoint come
