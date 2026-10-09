@@ -12,6 +12,8 @@ Supports multiple cities — all scripts accept `--city <name>`.
 | **Krakow** | ZTP Kraków bus + tram + regional trains | Multi-feed merge |
 | **Gdansk** | ZTM Gdansk | City proper (bbox excludes Gdynia/Sopot) |
 | **Berlin** | VBB GTFS | U/S-Bahn, trams, buses |
+| **Manhattan** | MTA subway + buses + LIRR/MNR, PATH, NYC Ferry | Prefixed multi-feed merge, rotated render |
+| **Lublin** | ZDiTM via mkuran.pl + regional trains | Prefixed merge (bus, trolleybus, trains) |
 
 ## Status (2026-10-09)
 
@@ -42,6 +44,11 @@ untouched) so small unserved/low-access buildings stay visible. The halo is "pai
 the adjacent building colour lightened 35 % towards white (multi-coloured big buildings: the
 nearest part), comparison `png/previews/style_grid_spill_zoom.png`. Comparison:
 `png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
+
+**Lublin (in progress, 2026-10-09)**: Wed **14.10.2026** (the polish_trains feed is a rolling
+window from 09.10, 07.10 had 1 train trip). 1,113 stops, 104.9k departures (425 by train); top stops
+KUL / Ogród Saski ~790. Chain runs its downloads now, heavy steps wait for Manhattan's chain to end.
+The chain's preview is labelled 07.10 by mistake: re-render with `--date 14.10.2026`.
 
 **Manhattan (rerun in progress, 2026-10-09)**: rendered **rotated** so the Hudson is vertical
 (`render_crs` = oblique Mercator, `gamma=66`: island upright, Hudson leaning 3°; `render_frame`
