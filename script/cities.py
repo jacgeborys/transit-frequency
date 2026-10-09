@@ -205,12 +205,17 @@ CITIES = {
 
     'manhattan': {
         'name': 'Manhattan',
-        # Manhattan + ~1 km margin (Jersey City/Hoboken, LIC, south Bronx, downtown Brooklyn)
+        # Covers the rotated render frame below (+ ~400 m so edge stops' isochrones are whole)
         'bbox': {
-            'south': 40.690, 'west': -74.035,
-            'north': 40.885, 'east': -73.900,
+            'south': 40.674, 'west': -74.040,
+            'north': 40.889, 'east': -73.850,
         },
         'crs_metric': 'EPSG:32618',  # UTM 18N (metres); NY State Plane is in US feet
+        # Render rotated so the Hudson is vertical (oblique Mercator, gamma = rotation):
+        # Hudson on the left edge, New Jersey left out (no NJ Transit data), Queens on the right
+        'render_crs': ('+proj=omerc +lat_0=40.785 +lonc=-73.965 +alpha=90 +gamma=69 +k_0=1 '
+                       '+x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs'),
+        'render_frame': (-2300, -10500, 5500, 11100),  # m in render_crs: Battery..Inwood, LIC/Astoria
         'gtfs': {
             'subway': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip',
             'bus_m': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_m.zip',
@@ -230,7 +235,7 @@ CITIES = {
         'exact_service_match': True,
         'vehicle_classify': _nyc_vehicle,
         'has_frequencies': False,
-        'network_tiles': 6,
+        'network_tiles': 7,
         'template': 'warsaw',  # tall, narrow island: portrait layout
     },
 }

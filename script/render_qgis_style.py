@@ -1062,7 +1062,8 @@ def main():
         if a is not None and a.text:
             map_crs = a.text
     if tmpl is not city:
-        map_crs = city['crs_metric']
+        # 'render_crs' (optional): e.g. a rotated oblique Mercator, so a tilted city sits upright
+        map_crs = city.get('render_crs', city['crs_metric'])
 
     items = {it.get('type'): [] for it in layout.iter('LayoutItem')}
     for it in layout.iter('LayoutItem'):
@@ -1082,8 +1083,11 @@ def main():
     if tmpl is not city:
         mm_per_m = mw / (extent[2] - extent[0])
         b = city['bbox']
-        extent = Transformer.from_crs('EPSG:4326', map_crs, always_xy=True).transform_bounds(
-            b['west'], b['south'], b['east'], b['north'])
+        if 'render_frame' in city:  # (xmin, ymin, xmax, ymax) in render_crs; must lie inside bbox
+            extent = tuple(city['render_frame'])
+        else:
+            extent = Transformer.from_crs('EPSG:4326', map_crs, always_xy=True).transform_bounds(
+                b['west'], b['south'], b['east'], b['north'])
         right, bottom = page_mm[0] - (mx + mw), page_mm[1] - (my + mh)
         old_w = page_mm[0]
         mw, mh = (extent[2] - extent[0]) * mm_per_m, (extent[3] - extent[1]) * mm_per_m
