@@ -77,6 +77,41 @@ def building_renderer(coverage_renderer, shade=BUILDING_SHADE, saturation=BUILDI
     return r
 
 
+def floor_fill_lightness(renderer, layer_alpha, bg_rgb, floor, step=0.8):
+    """Raise low classes' fill opacity so the fill, composited over the background, is at
+    least `floor` + `step` * class index in CIE L* (hue unchanged). Dark mode: the QGIS
+    style's low classes are nearly transparent (designed for a white page) and vanish on black.
+    layer_alpha = layer opacity x coverage fade (everything multiplied onto the class alpha).
+    """
+    if renderer['type'] != 'graduatedSymbol':
+        return
+    syms = [s for _, _, s, _, _ in renderer['ranges']]
+    for k, sym_name in enumerate(syms):
+        sym = renderer['symbols'][sym_name]
+        for cls, props in sym['layers']:
+            if cls != 'SimpleFill' or 'color' not in props:
+                continue
+            c = parse_color(props['color'])
+            target = floor + step * k
+
+            def lum(a):
+                return lstar(tuple(c[i] * a + bg_rgb[i] * (1 - a) for i in range(3)))
+            a_now = c[3] * sym['alpha'] * layer_alpha
+            if lum(a_now) >= target:
+                continue
+            lo, hi = a_now, layer_alpha * sym['alpha']  # class alpha can go up to 1
+            if lum(hi) < target:
+                a_new = hi
+            else:
+                for _ in range(30):
+                    mid = (lo + hi) / 2
+                    lo, hi = (mid, hi) if lum(mid) < target else (lo, mid)
+                a_new = hi
+            cls_alpha = min(1.0, a_new / (sym['alpha'] * layer_alpha))
+            rgb = ','.join(str(int(round(v * 255))) for v in c[:3])
+            props['color'] = f"{rgb},{int(round(cls_alpha * 255))}"
+
+
 def big_building_renderer(rgb=BIG_BUILDING_RGB):
     if rgb.count(',') == 2:
         rgb += ',255'
@@ -970,6 +1005,9 @@ def main():
     parser.add_argument('--recolor', action='append', default=[], metavar='LAYER=R,G,B',
                         help="Repaint a basemap layer (by file stem: water, roads, railways, buildings, "
                              "grass, ...): fills, outlines and lines; alpha kept. Repeatable")
+    parser.add_argument('--min-fill-lightness', type=float, default=0.0,
+                        help='Dark mode: low classes\' area fill at least this CIE L* on the background '
+                             '(+0.8 per class), so blue/purple fills stay visible on black')
     parser.add_argument('--line-scale', action='append', default=[], metavar='LAYER=F',
                         help='Scale line/outline widths of a layer, e.g. railways=0.6 (repeatable)')
     parser.add_argument('--building-outline-mm', type=float, default=0,
@@ -1142,6 +1180,11 @@ def main():
         if 'coverage_map' in layer['path'].name:
             layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
             apply_palette(layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
+            if args.min_fill_lightness:
+                bg_rgb = tuple(int(v) / 255 for v in args.bg_rgb.split(',')) if args.bg_rgb else (1, 1, 1)
+                fade = args.coverage_fade if args.buildings else 1.0
+                floor_fill_lightness(layer['renderer'], layer['opacity'] * fade, bg_rgb,
+                                     args.min_fill_lightness)
 
     bld = None
     if args.buildings:

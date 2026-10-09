@@ -24,7 +24,7 @@ from cities import get_city, PROJECT_DIR
 STYLE = [
     '--restricted-buildings',
     '--bg-rgb', '0,0,0', '--green-rgb', '30,44,34', '--forest-rgb', '28,50,37',
-    '--uncovered-rgb', '58,58,64', '--coverage-fade', '0.42',
+    '--uncovered-rgb', '58,58,64', '--coverage-fade', '0.42', '--min-fill-lightness', '7',
     '--building-shade', '1.0', '--building-saturation', '1.1',
     '--road-edge-mm', '0.1', '--road-edge-rgb', '70,72,82',
     '--recolor', 'water=26,46,74', '--recolor', 'roads=34,35,42',
