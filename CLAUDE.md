@@ -10,6 +10,9 @@ where data comes from and how to produce maps.
    allotments, cemeteries, railways, roads, buildings, **barriers** (fences/walls/hedges,
    closed rings stored as polygons), **sea** (built from `natural=coastline` and appended to
    water.gpkg: tidal straits like New York's Harlem River are not mapped as water areas).
+   Buildings tagged `location=underground` (subway stations such as Times Sq-42 St, Warszawa
+   Centralna's platform hall) are dropped since 2026-10-09; for basemaps fetched earlier run
+   `script/drop_underground_buildings.py --city <c>` (then 03-05, or just 05 + render).
    A layer that still fails after retry rounds makes the fetcher exit 1 (no silent "No data").
    Both fetchers send Overpass requests through `overpass_polite.py` (waits for a free slot via
    /api/status, backs off after 504s, drops a mirror after 3 failures). The copy next to the
