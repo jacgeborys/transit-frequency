@@ -1,33 +1,131 @@
 """
 Polite Overpass API requests, shared by the network and basemap fetchers.
 
-- One request at a time; before each request to a server with a /status endpoint
-  (overpass-api.de), wait until it reports a free slot (status checks don't count
-  against the quota). A 429 means our quota is used up: we wait for the slot instead
-  of hammering.
-- After a 504/500/timeout, back off 30, 60, 120... s (+ jitter) before asking the same
-  server again; a different healthy server may be tried right away.
+- One request at a time on this machine: a lock file in the system temp folder is shared by
+  every process using this module (e.g. two cities downloading in parallel take turns).
+- Before each request to a server with a /status endpoint (overpass-api.de), wait until it
+  reports a free slot (status checks don't count against the quota). A 429 means our quota
+  is used up: we wait for the slot instead of hammering.
+- After a 504/500/429/timeout, back off 60, 120, 240... s, max 10 min (+ jitter), or as long
+  as a Retry-After header asks. The backoff state is shared between processes too, so one
+  process's failure makes the others wait as well.
 - A mirror that fails 3 times in a row is dropped for the rest of the run
   (kumi.systems answered tiny queries but returned 500 for every real one in 2026-10).
+- The User-Agent names the project (USER_AGENT), whatever headers the caller passes.
 
 A copy of this file lives next to D:\\QGIS\\osm_basemap\\fetch_osm_basemap.py (not a git
 repo); keep the two in sync.
 """
+import json
+import os
 import random
 import re
+import tempfile
 import time
+from pathlib import Path
 
 import requests
 
 SERVERS = ["https://overpass-api.de/api/interpreter",
            "https://overpass.kumi.systems/api/interpreter"]
+USER_AGENT = 'transit-frequency-map/1.0 (+https://github.com/jacgeborys/transit-frequency)'
 MAX_FAILS = 3          # consecutive failures before a mirror is dropped (main server never)
-_fails = {u: 0 for u in SERVERS}
-_last_fail = {}        # server -> time of its last failure (for backoff)
+BACKOFF_BASE, BACKOFF_MAX = 60, 600   # s
+_fails = {u: 0 for u in SERVERS}      # this process (mirror dropping)
+
+_DIR = Path(tempfile.gettempdir()) / 'overpass_polite'
+_LOCK = _DIR / 'request.lock'
+_STATE = _DIR / 'backoff.json'        # server -> {"fails": n, "until": epoch s}
 
 
 def _host(url):
     return url.split('/')[2]
+
+
+def _headers(headers):
+    h = dict(headers or {})
+    h['User-Agent'] = USER_AGENT
+    h.setdefault('Accept', '*/*')
+    return h
+
+
+class _MachineLock:
+    """Exclusive lock file shared by all processes; a lock not refreshed for `stale` s (holder
+    died) is taken over. Holders refresh it while waiting (_sleep); a request itself is
+    shorter than `stale`."""
+
+    def __init__(self, stale):
+        self.stale = stale
+
+    def __enter__(self):
+        _DIR.mkdir(parents=True, exist_ok=True)
+        while True:
+            try:
+                fd = os.open(str(_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode())
+                os.close(fd)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - _LOCK.stat().st_mtime > self.stale:
+                        _LOCK.unlink()  # holder died mid-request
+                        continue
+                except FileNotFoundError:
+                    continue
+                time.sleep(2 + random.random())
+
+    def __exit__(self, *exc):
+        try:
+            _LOCK.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _sleep(secs):
+    """Sleep while holding the lock, refreshing it so other processes don't take it over."""
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            os.utime(_LOCK)
+        except OSError:
+            pass
+        time.sleep(min(20, max(0, end - time.time())))
+
+
+def _read_state():
+    try:
+        return json.loads(_STATE.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_state(state):
+    tmp = _STATE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(state), encoding='utf-8')
+    os.replace(tmp, _STATE)
+
+
+def _record(url, ok, retry_after=None):
+    """Update the shared backoff state after a request (call while holding the lock)."""
+    state = _read_state()
+    s = state.get(url, {'fails': 0, 'until': 0})
+    if ok:
+        s = {'fails': 0, 'until': 0}
+    else:
+        s['fails'] += 1
+        wait = min(BACKOFF_MAX, BACKOFF_BASE * 2 ** (s['fails'] - 1)) * random.uniform(1.0, 1.3)
+        if retry_after:
+            wait = max(wait, retry_after)
+        s['until'] = time.time() + wait
+    state[url] = s
+    _write_state(state)
+
+
+def _retry_after(resp):
+    try:
+        return float(resp.headers.get('Retry-After', ''))
+    except ValueError:
+        return None
 
 
 def wait_for_slot(url, headers, log, max_wait=600):
@@ -37,7 +135,8 @@ def wait_for_slot(url, headers, log, max_wait=600):
     waited = 0
     while waited < max_wait:
         try:
-            st = requests.get(url.replace('/interpreter', '/status'), headers=headers, timeout=20).text
+            st = requests.get(url.replace('/interpreter', '/status'),
+                              headers=_headers(headers), timeout=20).text
         except requests.RequestException:
             return  # status unreachable: just try the request
         m = re.search(r'(\d+) slots? available now', st)
@@ -46,7 +145,7 @@ def wait_for_slot(url, headers, log, max_wait=600):
         secs = [int(s) for s in re.findall(r'in (-?\d+) seconds', st)]
         wait = max(5, min(secs) + 2) if secs else 15
         log(f"no free slot, wait {wait}s...")
-        time.sleep(wait)
+        _sleep(wait)
         waited += wait
 
 
@@ -58,32 +157,36 @@ def post(query, headers, timeout=180, attempts=6, log=None):
         url = live[attempt % len(live)]
         if attempt > 0:
             log(f"retry {attempt} via {_host(url)}...")
-        n = _fails[url]
-        if n:  # this server failed last time: back off before asking it again
-            due = _last_fail.get(url, 0) + min(240, 30 * 2 ** (n - 1)) * random.uniform(1.0, 1.3)
-            if due > time.time():
+        with _MachineLock(stale=timeout + 120):
+            due = _read_state().get(url, {}).get('until', 0)
+            if due > time.time():  # this server failed recently (for any of our processes)
                 log(f"(wait {due - time.time():.0f}s)")
-                time.sleep(due - time.time())
-        wait_for_slot(url, headers, log)
-        try:
-            resp = requests.post(url, data={'data': query}, headers=headers, timeout=timeout)
-            if resp.status_code == 200:
-                data = resp.json()
-                # A query that hit the server's time/memory limit returns 200 + an error remark
-                remark = str(data.get('remark', ''))
-                if 'error' in remark.lower():
-                    log(f"partial result ({remark[:50]})...")
+                _sleep(due - time.time())
+            wait_for_slot(url, headers, log)
+            ok, retry_after = False, None
+            try:
+                resp = requests.post(url, data={'data': query}, headers=_headers(headers),
+                                     timeout=timeout)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # A query that hit the server's time/memory limit returns 200 + an error remark
+                    remark = str(data.get('remark', ''))
+                    if 'error' in remark.lower():
+                        log(f"partial result ({remark[:50]})...")
+                    else:
+                        ok = True
                 else:
-                    _fails[url] = 0
-                    return data
-            else:
-                log(f"HTTP {resp.status_code}...")
-        except requests.exceptions.Timeout:
-            log("timeout...")
-        except Exception as e:  # connection errors, invalid JSON
-            log(f"error: {str(e)[:50]}...")
+                    retry_after = _retry_after(resp)
+                    log(f"HTTP {resp.status_code}...")
+            except requests.exceptions.Timeout:
+                log("timeout...")
+            except Exception as e:  # connection errors, invalid JSON
+                log(f"error: {str(e)[:50]}...")
+            _record(url, ok, retry_after)
+        if ok:
+            _fails[url] = 0
+            return data
         _fails[url] += 1
-        _last_fail[url] = time.time()
         if url != SERVERS[0] and _fails[url] == MAX_FAILS:
             log(f"(dropping {_host(url)} for this run)")
     return None
