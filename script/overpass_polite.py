@@ -9,8 +9,7 @@ Polite Overpass API requests, shared by the network and basemap fetchers.
 - After a 504/500/429/timeout, back off 60, 120, 240... s, max 10 min (+ jitter), or as long
   as a Retry-After header asks. The backoff state is shared between processes too, so one
   process's failure makes the others wait as well.
-- A mirror that fails 3 times in a row is dropped for the rest of the run
-  (kumi.systems answered tiny queries but returned 500 for every real one in 2026-10).
+- A mirror (if SERVERS lists any) that fails 3 times in a row is dropped for the rest of the run.
 - The User-Agent names the project (USER_AGENT), whatever headers the caller passes.
 
 A copy of this file lives next to D:\\QGIS\\osm_basemap\\fetch_osm_basemap.py (not a git
@@ -26,8 +25,10 @@ from pathlib import Path
 
 import requests
 
-SERVERS = ["https://overpass-api.de/api/interpreter",
-           "https://overpass.kumi.systems/api/interpreter"]
+# Mirrors go after the main server. overpass.kumi.systems was removed 2026-10-10: it returned
+# 500 for every real query (only tiny ones worked), so each try just cost both sides a request
+# and its backoff stalled our machine-wide queue.
+SERVERS = ["https://overpass-api.de/api/interpreter"]
 USER_AGENT = 'transit-frequency-map/1.0 (+https://github.com/jacgeborys/transit-frequency)'
 MAX_FAILS = 3          # consecutive failures before a mirror is dropped (main server never)
 BACKOFF_BASE, BACKOFF_MAX = 60, 600   # s

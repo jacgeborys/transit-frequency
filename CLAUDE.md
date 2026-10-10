@@ -21,7 +21,7 @@ was full: 37 GB incl. `_data`, `cache`, `network`). D: doesn't record file owner
    Both fetchers send Overpass requests through `overpass_polite.py` (one request at a time
    machine-wide via a lock + shared backoff state in `%TEMP%\overpass_polite\`, so parallel
    downloads take turns; waits for a free slot via /api/status, backs off 60 s..10 min after
-   504s or per Retry-After, drops a mirror after 3 failures; User-Agent names the project). The copy next to the
+   504s or per Retry-After, main server only (kumi mirror removed: 500 on every real query); User-Agent names the project). The copy next to the
    basemap fetcher on D: must be kept in sync with `script/overpass_polite.py`.
    **Changing a city's bbox?** Move the old basemap/network folders aside (e.g. `<city>_old_bbox`)
    and pass `--reuse-from <old dir> --reuse-bbox s,w,n,e` to the basemap fetcher and 02
