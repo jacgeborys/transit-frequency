@@ -92,6 +92,25 @@ def load_network(city: dict):
     return None
 
 
+def _csr_min(weights, rows, cols, n):
+    """Sparse matrix keeping the SHORTEST of duplicate (row, col) entries.
+
+    csr_matrix((w, (r, c))) adds duplicates up. The network has copies of the same way
+    (02 merged its download tiles, and a way crossing a tile border came back from each
+    tile: 6.8 % of New York's node pairs, up to 4 copies), so such streets were routed at
+    2-4x their length until 2026-10-10. Parallel ways between the same two nodes: the
+    shorter one is what a walker uses.
+    """
+    weights, rows, cols = (np.asarray(a) for a in (weights, rows, cols))
+    if len(rows) == 0:
+        return csr_matrix((n, n))
+    order = np.lexsort((weights, cols, rows))
+    r, c, w = rows[order], cols[order], weights[order]
+    first = np.ones(len(r), bool)
+    first[1:] = (r[1:] != r[:-1]) | (c[1:] != c[:-1])
+    return csr_matrix((w[first], (r[first], c[first])), shape=(n, n))
+
+
 def convert_to_sparse(G, crs_metric: str, access=None):
     """
     Convert NetworkX graph to scipy sparse matrix + coordinate arrays.
@@ -128,7 +147,7 @@ def convert_to_sparse(G, crs_metric: str, access=None):
             private.append(u in access['closed_gates'] or v in access['closed_gates']
                            or any(_as_int(w) in access['private_ways'] for w in way_ids))
 
-    sparse = csr_matrix((weights, (rows, cols)), shape=(n_nodes, n_nodes))
+    sparse = _csr_min(weights, rows, cols, n_nodes)
 
     node_ids = np.array(nids)
     lonlats = np.column_stack([lons, lats])
@@ -144,9 +163,8 @@ def convert_to_sparse(G, crs_metric: str, access=None):
     # estates) don't connect to the main public network. Nobody from outside can
     # use them, and residents need them -> treat them as private.
     pub = ~private
-    _, lab = connected_components(
-        csr_matrix((weights[pub], (rows[pub], cols[pub])), shape=(n_nodes, n_nodes)),
-        directed=False)
+    _, lab = connected_components(_csr_min(weights[pub], rows[pub], cols[pub], n_nodes),
+                                  directed=False)
     on_pub = np.zeros(n_nodes, bool)
     on_pub[rows[pub]] = True
     on_pub[cols[pub]] = True
@@ -156,9 +174,8 @@ def convert_to_sparse(G, crs_metric: str, access=None):
     private = private | to_private
     print(f"  Public islands behind gates: {to_private.sum():,} edges reclassified private")
     pub = ~private
-    sparse_public = csr_matrix((weights[pub], (rows[pub], cols[pub])), shape=(n_nodes, n_nodes))
-    sparse_private = csr_matrix((weights[private], (rows[private], cols[private])),
-                                shape=(n_nodes, n_nodes))
+    sparse_public = _csr_min(weights[pub], rows[pub], cols[pub], n_nodes)
+    sparse_private = _csr_min(weights[private], rows[private], cols[private], n_nodes)
     # Private nodes: no public edge touches them (estate interiors, closed gates)
     has_public = (np.diff(sparse_public.indptr) > 0) | (np.bincount(
         sparse_public.indices, minlength=n_nodes) > 0)
@@ -172,7 +189,7 @@ def convert_to_sparse(G, crs_metric: str, access=None):
           f"({(~has_public).sum():,} private-only nodes)")
     gate_net = {
         'public': sparse_public,
-        'full': (sparse_public + sparse_private).tocsr(),
+        'full': sparse,  # all edges, shortest per node pair (a sum would add parallel ways)
         'two_layer': two_layer,
         'private_node': ~has_public,
         'public_tree': cKDTree(lonlats[has_public]),
@@ -631,7 +648,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g6"  # bump when access_rules change
+        params += "_g7"  # bump when access_rules change (g7: duplicate edges no longer summed)
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

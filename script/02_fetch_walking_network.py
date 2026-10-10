@@ -86,11 +86,15 @@ def build_graph_from_jsons(jsons):
     nodes = {}
     ways = []
 
+    seen_ways = set()
     for data in jsons:
         for elem in data.get('elements', []):
             if elem['type'] == 'node':
                 nodes[elem['id']] = (elem['lon'], elem['lat'])
-            elif elem['type'] == 'way':
+            elif elem['type'] == 'way' and elem['id'] not in seen_ways:
+                # Once per way: a way crossing a tile border comes back from every tile, and
+                # its copies became parallel edges (03 summed them into 2-4x the length)
+                seen_ways.add(elem['id'])
                 ways.append(elem)
 
     G = nx.MultiDiGraph()

@@ -113,6 +113,14 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
 
 ### Next steps / open ideas
 
+- **Published maps carry a routing error (found 2026-10-10)**: 02 merged its download tiles
+  without dropping repeated ways, and 03 built the routing matrix with `csr_matrix`, which *adds
+  up* duplicate entries, so every way crossing a tile border was routed at 2-4x its length
+  (New York: 6.8 % of node pairs, Lublin 4.9 %). Stops along such streets got too small
+  isochrones (E 23 St/1 Av: 3.0 instead of ~12 ha). Fixed in 03 (`_csr_min`: shortest of
+  duplicates; tag g7) and 02 (ways deduplicated). New York + Amsterdam are computed with the fix;
+  Warsaw, Kraków, Berlin, Lublin finals predate it and need 03 -> 04 -> 04 -> 05 -> render
+  to be corrected (not done: waiting for the user's go).
 - **Berlin legend is too small**: Berlin borrows Kraków's layout (page twice as wide), the
   header scales with page width but the legend does not. Make `draw_legend` scale with
   the page (like `draw_headline`) and re-render Berlin.
