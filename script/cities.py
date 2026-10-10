@@ -240,8 +240,9 @@ CITIES = {
         'exact_service_match': True,
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
-        # Geofabrik regions (make_osm_extract.py); the frame's left edge touches Jersey City/Bayonne
-        'osm_pbf': ['north-america/us/new-york', 'north-america/us/new-jersey'],
+        # Geofabrik region (make_osm_extract.py). New Jersey left out on purpose: no NJ Transit
+        # data, and only the strip across the Hudson is in the frame
+        'osm_pbf': ['north-america/us/new-york'],
         'network_tiles': 9,  # 7 before the 2026-10-10 bbox growth (tiles ~same size)
         'template': 'krakow',  # OSM layer stack (Warsaw's uses its old roads.shp); page follows render_frame
     },
