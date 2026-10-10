@@ -147,13 +147,21 @@ def convert_to_sparse(G, crs_metric: str, access=None):
             private.append(u in access['closed_gates'] or v in access['closed_gates']
                            or any(_as_int(w) in access['private_ways'] for w in way_ids))
 
+    # Walking goes both ways on every edge: 02 used to keep oneway=yes (one-way streets,
+    # Dutch one-way cycle paths) one-directional, so 8-9 % of the edges could only be walked
+    # one way and stops on them reached little or nothing (until 2026-10-11)
+    n_dir = len(rows)
+    rows, cols = rows + cols, cols + rows
+    weights = weights + weights
+    if access is not None:
+        private = private + private
     sparse = _csr_min(weights, rows, cols, n_nodes)
 
     node_ids = np.array(nids)
     lonlats = np.column_stack([lons, lats])
     tree = cKDTree(lonlats)
 
-    print(f"Done ({n_nodes:,} nodes, {len(rows):,} edges)")
+    print(f"Done ({n_nodes:,} nodes, {n_dir:,} edges, walkable both ways)")
     if access is None:
         return node_ids, tree, coords_metric, sparse, node_to_idx, None
 
@@ -648,7 +656,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g7"  # bump when access_rules change (g7: duplicate edges no longer summed)
+        params += "_g8"  # bump when access_rules change (g7: duplicates not summed; g8: edges walkable both ways)
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

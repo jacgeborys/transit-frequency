@@ -121,6 +121,12 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
   duplicates; tag g7) and 02 (ways deduplicated). New York + Amsterdam are computed with the fix;
   Warsaw, Kraków, Berlin, Lublin finals predate it and need 03 -> 04 -> 04 -> 05 -> render
   to be corrected (not done: waiting for the user's go).
+- **Second routing error (found 2026-10-11)**: 02 kept `oneway=yes` (one-way streets, Dutch
+  one-way cycle paths) one-directional for walking: 8-9 % of all edges (Amsterdam 8.7 %, New
+  York 8.3 %) could be walked one way only, and some stops reached almost nothing
+  (Amsterdam: Muiderpoortstation, Noorderpark skipped; average isochrone 17.7 -> 20.8 ha after
+  the fix). Fixed in 03 (every edge walkable both ways, tag g8) and 02. Same rerun need for
+  the old finals as above.
 - **Berlin legend is too small**: Berlin borrows Kraków's layout (page twice as wide), the
   header scales with page width but the legend does not. Make `draw_legend` scale with
   the page (like `draw_headline`) and re-render Berlin.
