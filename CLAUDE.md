@@ -37,6 +37,14 @@ was full: 37 GB incl. `_data`, `cache`, `network`). D: doesn't record file owner
 3. `D:\QGIS\mapy_warszawy_misc\data\osm\`: older Warsaw OSM extract; the Warsaw layout
    in the QGIS project still uses it for the background.
 
+## Making a map (normalized, 2026-10-11)
+
+`python script/run_city.py --city X --date YYYYMMDD --detach` runs the whole pipeline the same way
+for every city (Geofabrik extract answered locally instead of Overpass, raster coverage); see the
+README's "Adding a new city". Use it instead of hand-written .cmd chains.
+Previews go to png/previews/; diagnostic sketches, zooms and comparisons belong in
+png/archive/how_it_was_made/ (the user wants them for a "how it was made" post).
+
 ## Choosing a GTFS date
 
 - Pick a regular school-term weekday, usually a **Wednesday in October** (or March to May).

@@ -297,6 +297,22 @@ CITIES = {
 # Public API
 # ---------------------------------------------------------------------------
 
+# New York, larger: whole Manhattan (Inwood..Battery) + South Bronx, Brooklyn to Bay Ridge /
+# Sheepshead Bay, Queens to Flushing / Jamaica (2026-10-11 candidate; 'manhattan' = 16.6 x 17.5 km).
+# Same feeds as 'manhattan' + Staten Island buses (the frame's corner reaches St. George).
+CITIES['newyork'] = {
+    **CITIES['manhattan'],
+    'name': 'New York',
+    'bbox': {'south': 40.551, 'west': -74.092, 'north': 40.879, 'east': -73.732},
+    # m in the same rotated CRS as 'manhattan': 18.6 x 30.5 km (corners checked inside the bbox)
+    'render_frame': (-3100, -16100, 15500, 14370),
+    'gtfs': {**CITIES['manhattan']['gtfs'],
+             'bus_si': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_si.zip'},
+    'gtfs_groups': {f: 'bus' for f in ('bus_m', 'bus_bx', 'bus_b', 'bus_q', 'bus_co', 'bus_si')},
+    'network_tiles': 12,
+}
+
+
 def get_city(name: str) -> dict:
     """Get city config by name (case-insensitive). Raises KeyError if not found."""
     key = name.lower().strip()

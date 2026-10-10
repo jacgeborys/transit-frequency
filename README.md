@@ -31,10 +31,10 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 Render one with `python script/render_poster.py --city <city>` (style + header texts live
 there). Pipeline variant: `--gates` isochrones + `05_building_values.py` (buildings coloured
 by their best frequency, buildings behind fences painted from the residents-only coverage).
-Style: pitch-black page/land (since 2026-10-09; water 26,46,74, parks/forest lifted slightly so they stand out; comparison `png/previews/style_grid_black.png`), low-class area fills floored at CIE L* 7 (+0.8 per class) on the
+Style: pitch-black page/land (since 2026-10-09; water 26,46,74, parks/forest lifted slightly so they stand out; comparison `png/archive/how_it_was_made/style/style_grid_black.png`), low-class area fills floored at CIE L* 7 (+0.8 per class) on the
 background (`--min-fill-lightness`; the QGIS style's low classes are 25-40 % opaque, which
 left the 1-80/day fills at L* 1-3 on black, i.e. invisible; Ząbki comparison
-`png/previews/style_grid_fill_zabki.png`), palette `bmy_dark` with a perceived-lightness floor
+`png/archive/how_it_was_made/style/style_grid_fill_zabki.png`), palette `bmy_dark` with a perceived-lightness floor
 (`--min-lightness 34`, CIE L*: every class lighter than unserved buildings) and a brighter
 top (`--palette-extend "#fff38a,#fffbd6"`), coverage fill 0.42, Bahnschrift header with a
 big city name + question + date line, km scale bar opposite the legend.
@@ -45,8 +45,8 @@ lines inside junctions), railways darker and thinner (`--line-scale railways=0.6
 building a 0.05 mm outer halo (`--building-outline-mm`, ring outside the footprint, fills
 untouched) so small unserved/low-access buildings stay visible. The halo is "paint spill" (`--building-outline-spill 0.35`):
 the adjacent building colour lightened 35 % towards white (multi-coloured big buildings: the
-nearest part), comparison `png/previews/style_grid_spill_zoom.png`. Comparison:
-`png/previews/style_grid_outline_halo.png`, full-map preview `png/previews/warsaw_poster_halo_150.png`.
+nearest part), comparison `png/archive/how_it_was_made/style/style_grid_spill_zoom.png`. Comparison:
+`png/archive/how_it_was_made/style/style_grid_outline_halo.png`, full-map preview `png/archive/how_it_was_made/style/warsaw_poster_halo_150.png`.
 
 **Lublin (300 dpi final `png/how_many_rides_in_5_mins_lublin_2026_10_14_dark_bmy_bright_hq.png`;
 slightly zoomed `render_frame`)**: Wed **14.10.2026** (the polish_trains feed is a rolling
@@ -76,7 +76,7 @@ the preview run as a detached chain (logs in `_data/manhattan/2026_10_09/log_*.t
 in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar stretched,
 `gtfs_extend_calendar`); no NJ Transit (needs a developer login), so Jersey City/Hoboken look
 under-served.
-Thumbnails of every map: `png/previews/*_thumb.png`.
+Thumbnails of every map: `png/archive/how_it_was_made/thumbs/*_thumb.png`.
 
 **New York + Amsterdam (2026-10-10, in progress)**: New York = the Manhattan config with the frame
 grown 3 km south + 5 km east (`render_frame` (-3100, -11100, 13500, 6370), 16.6 x 17.5 km,
@@ -107,8 +107,8 @@ tonight's run (`compare_coverage.py`, previews `compare_raster_vs_vector_*.png`)
 
 Also available: light chroma maps `…_gates_buildings_chroma.png` (all three cities), other
 dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
-`png/previews/style_grid_*.png` (`script/_style_grid.py`), header font samples
-(`script/_font_samples.py`), diagnostic access sketches `png/previews/sketch_*.png`
+`png/archive/how_it_was_made/style/style_grid_*.png` (`script/_style_grid.py`), header font samples
+(`script/_font_samples.py`), diagnostic access sketches `png/archive/how_it_was_made/sketches/sketch_*.png`
 (`script/sketch_access.py`).
 
 ### Next steps / open ideas
@@ -225,21 +225,25 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
    `template: 'krakow'` (no QGIS layout of its own: borrow Kraków's layout + styles).
 2. **Poster texts**: add an entry to `POSTER` in `script/render_poster.py` (city name,
    language; English template `EN` is there).
-3. **Run** (from `script/`; heavy steps one at a time, detached, see below):
+3. **Run** everything with one command (hidden, outside the session; milestones in
+   `png/log_buildings_final.txt`, step logs in `<data folder>/logs/`):
 
 ```bash
-python 00_download_gtfs.py --city X
-python 01_calculate_trip_counts.py --city X YYYYMMDD ../_data/X/<folder>   # a school-term Wednesday
-python make_osm_extract.py --city X          # needs city['osm_pbf'] (Geofabrik region paths)
-set OSM_LOCAL_PBF=D:\QGIS\osm_basemap\pbf\X_<region>.osm.pbf               # answer queries locally
-python D:/QGIS/osm_basemap/fetch_osm_basemap.py --city X                    # basemap incl. barriers, gates, private_ways, buildings
-python 02_fetch_walking_network.py --city X
-python 03_generate_isochrones_local.py --city X --gates ../_data/X/<folder>
-python 04_create_coverage_map.py --city X --variant gates ../_data/X/<folder>
-python 04_create_coverage_map.py --city X --variant gates_residents ../_data/X/<folder>
-python 05_building_values.py --city X --variant gates ../_data/X/<folder>
-python render_poster.py --city X --date DD.MM.YYYY
+python run_city.py --city X --date YYYYMMDD --detach          # a school-term Wednesday
+python run_city.py --city X --date YYYYMMDD --final --detach  # + 300 dpi poster into png/
 ```
+
+   Steps: gtfs (00) -> counts (01) -> osm (make_osm_extract) -> basemap (fetch_osm_basemap via
+   the local extract + drop_underground_buildings) -> network (02) -> iso (03 --gates) ->
+   coverage (04_coverage_raster, gates + gates_residents) -> buildings (05) -> render (150 dpi
+   preview, `png/previews/<city>_poster_150.png`) [-> final (300 dpi)] [-> cleanup].
+   Make-like: a step whose output is newer than its inputs is skipped, so a rerun continues where
+   it stopped; `--from STEP` forces a step and everything after it (e.g. `--from iso` after
+   changing access rules), `--to STEP` stops early, `--vector` uses the old vector 04 (check),
+   `--cleanup-osm` deletes the city's Geofabrik regional files at the end (the small city extract
+   stays for reruns). Regional files are otherwise kept in `D:\QGIS\osm_basemap\pbf\` (~0.2-0.5 GB
+   each; `make_osm_extract.py --refresh` downloads newer ones).
+   Typical times (2026-10-11): Amsterdam ~25 min from scratch, New York 16.6 x 17.5 km ~1 h.
 
 4. **Check** a few busy stops with `sketch_access.py --city X --stop "^Name$"` before
    trusting the map (access tagging differs between countries).
@@ -272,6 +276,11 @@ started with `Start-Process`), since 03/04/renders can each take 2–6 GB. All l
 checkpoint (03 chunks, 04 tiles, basemap/network tiles), so an interrupted run resumes.
 
 ## Directory structure
+
+png/: only the current 300 dpi finals; `png/previews/` = current working previews;
+`png/archive/how_it_was_made/{sketches,comparisons,style,thumbs,logs}` = diagnostic sketches,
+analytical zooms, comparisons and style experiments (kept for a "how it was made" post);
+`png/archive/variants/` = superseded style variants.
 
 ```
 _data/<city>/YYYY_MM_DD/   -- GTFS data + outputs (isochrones*, coverage_map*, buildings*, logs)

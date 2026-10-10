@@ -54,6 +54,7 @@ POSTER = {
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},
     'manhattan': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
+    'newyork': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }
 
 
