@@ -14,6 +14,7 @@ Supports multiple cities — all scripts accept `--city <name>`.
 | **Berlin** | VBB GTFS | U/S-Bahn, trams, buses |
 | **Manhattan** | MTA subway + buses + LIRR/MNR, PATH, NYC Ferry | Prefixed multi-feed merge, rotated render |
 | **Lublin** | ZDiTM via mkuran.pl + regional trains | Prefixed merge (bus, trolleybus, trains) |
+| **Amsterdam** | OVapi all-Netherlands feed, clipped to the bbox | Prefixed merge (chunked read), Dutch header |
 
 Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in OneDrive on C:).
 
@@ -77,6 +78,33 @@ in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar 
 under-served.
 Thumbnails of every map: `png/previews/*_thumb.png`.
 
+**New York + Amsterdam (2026-10-10, in progress)**: New York = the Manhattan config with the frame
+grown 3 km south + 5 km east (`render_frame` (-3100, -11100, 13500, 6370), 16.6 x 17.5 km,
+bbox 40.599-40.814 N, -74.068..-73.792), poster title "NEW YORK"; 8,659 stops, 1.04 M departures
+on Wed 14.10. Amsterdam = city core 52.290-52.425 N, 4.755-5.030 E (EPSG:28992, Kraków template,
+frame = bbox minus 400 m), Dutch header; OVapi GTFS, 1,587 stops, 183k departures on Wed 14.10
+(the feed starts 09.10). Data in `_data/{manhattan,amsterdam}/2026_10_10`, logs in
+`log_2026_10_10/`; 150 dpi previews `png/previews/{newyork,amsterdam}_poster_150.png`.
+Previous New York basemap/network: `*_old_bbox2`; this afternoon's Overpass layers (replaced by
+Geofabrik ones except water + sea): `D:\QGIS\osm_basemap\manhattan_overpass_2026_10_10`.
+
+**OSM data now comes from Geofabrik extracts** (since 2026-10-10; Overpass was overloaded all
+afternoon, even trivial queries got 504): `make_osm_extract.py --city X` downloads the regions in
+`city['osm_pbf']` once to `D:\QGIS\osm_basemap\pbf\` and cuts the city (bbox + 1 km, complete
+ways/relations); with `OSM_LOCAL_PBF=<extract>` set, `overpass_polite.post()` hands every query to
+`osm_local.py`, which answers the fetchers' Overpass QL subset from the extract with the same
+JSON. Nothing else changed in the fetchers. Validated against Overpass layers in central Manhattan:
+railways/water identical, other layers 99.6-100 % (the differences were New Jersey objects, and
+New Jersey is intentionally left out). A whole city's basemap: ~10-16 min instead of hours.
+
+**Raster coverage (04_coverage_raster.py, prototype)**: same result as 04 on a 2 m grid aligned to
+03's isochrone vertex lattice (per route: best stop per pixel; summed over routes; polygonized
+to the 04 schema). Lublin: 100.00 % of pixels identical to the vector map; Kraków 99.67 %
+(1-px edge specks, truth split between both). The vector method's geometry repair fills holes
+in some invalid isochrones (e.g. 2,450 m² near Oratoryjna, Lublin); the raster keeps them.
+Kraków 1.1 min vs 5.9 min. Full-size timing/comparison for New York + Amsterdam queued after
+tonight's run (`compare_coverage.py`, previews `compare_raster_vs_vector_*.png`).
+
 Also available: light chroma maps `…_gates_buildings_chroma.png` (all three cities), other
 dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
 `png/previews/style_grid_*.png` (`script/_style_grid.py`), header font samples
@@ -126,6 +154,9 @@ _data/<city>/YYYY_MM_DD/                -- Merged GTFS directory
 03_generate_isochrones_local.py         -- 5-min walking isochrones, parallel (--workers),
       [--barriers] [--gates]               checkpointed every 250 stops
     v
+make_osm_extract.py --city C           -- Geofabrik regions -> city extract (for OSM_LOCAL_PBF)
+osm_local.py                           -- Local Overpass stand-in used by overpass_polite.post()
+04_coverage_raster.py [--variant V]    -- Raster coverage map (prototype; same result, much faster)
 04_create_coverage_map.py [--variant V] -- Deduplicated frequency per area: tiled planar
                                            subdivision (STRtree, parallel, RAM guard) +
                                            parallel dissolve. Incremental: tiles on a fixed
@@ -185,6 +216,8 @@ D:\QGIS\osm_basemap\fetch_osm_basemap.py -- Basemap fetcher (incl. barriers, gat
 ```bash
 python 00_download_gtfs.py --city X
 python 01_calculate_trip_counts.py --city X YYYYMMDD ../_data/X/<folder>   # a school-term Wednesday
+python make_osm_extract.py --city X          # needs city['osm_pbf'] (Geofabrik region paths)
+set OSM_LOCAL_PBF=D:\QGIS\osm_basemap\pbf\X_<region>.osm.pbf               # answer queries locally
 python D:/QGIS/osm_basemap/fetch_osm_basemap.py --city X                    # basemap incl. barriers, gates, private_ways, buildings
 python 02_fetch_walking_network.py --city X
 python 03_generate_isochrones_local.py --city X --gates ../_data/X/<folder>
