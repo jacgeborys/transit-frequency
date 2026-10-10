@@ -85,8 +85,12 @@ unrelated matplotlib render.
 ## Running long jobs on this machine
 
 - 15 GB RAM; the user often has PyCharm open (~4 GB). Check free RAM before heavy steps.
-- Run multi-step chains as a `.cmd` started detached (`Start-Process cmd -ArgumentList
-  '/c','"<file>.cmd"' -WindowStyle Hidden`), so they survive the session. **The .cmd must
+- Run multi-step chains as a `.cmd` started hidden *and* outside Claude Code's process tree
+  (chains started with `Start-Process -WindowStyle Hidden` died with the session on 2026-10-10):
+  `$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0};
+  Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='cmd.exe /c "<file>.cmd"';
+  CurrentDirectory='D:\QGIS\TransitFrequency\script'; ProcessStartupInformation=$si}`
+  (without ShowWindow=0 a console appears, and closing it kills the job). **The .cmd must
   have CRLF line endings** (LF-only files silently never start) and, if it contains
   Polish/German characters, be UTF-8 with `chcp 65001 >nul` at the top. Verify it started
   (log line or `python.exe` process) right after launching.
