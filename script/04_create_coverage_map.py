@@ -413,6 +413,7 @@ def main():
     parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
                         help=f'Parallel worker processes (default {DEFAULT_WORKERS})')
     parser.add_argument('--tile', type=int, default=TILE_M, help=f'Tile size in m (default {TILE_M})')
+    parser.add_argument('--out', help='Output GeoPackage (default coverage_map_<variant>.gpkg)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
     args = parser.parse_args()
     _rt = Path(__file__).resolve().parent / 'runtime.json'  # machine-level overrides
@@ -431,7 +432,7 @@ def main():
 
     data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city, suffix)
     input_file = data_dir / f"isochrones{suffix}.gpkg"
-    output_file = data_dir / f"coverage_map{suffix}.gpkg"
+    output_file = Path(args.out) if args.out else data_dir / f"coverage_map{suffix}.gpkg"
 
     print("=" * 60)
     print(f"Transit Coverage Map — {city['name']}")
