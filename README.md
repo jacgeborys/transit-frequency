@@ -15,6 +15,8 @@ Supports multiple cities — all scripts accept `--city <name>`.
 | **Manhattan** | MTA subway + buses + LIRR/MNR, PATH, NYC Ferry | Prefixed multi-feed merge, rotated render |
 | **Lublin** | ZDiTM via mkuran.pl + regional trains | Prefixed merge (bus, trolleybus, trains) |
 
+Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in OneDrive on C:).
+
 ## Status (2026-10-09)
 
 **Current product: dark posters**, 300 dpi, one per city, all for Wednesday 07.10.2026:
@@ -137,7 +139,7 @@ _data/<city>/YYYY_MM_DD/                -- Merged GTFS directory
 render_qgis_style.py                    -- Standalone re-implementation of the QGIS layouts
       [--residents] [--buildings] [--palette] [--crop lon,lat,w,h] [--extend-left/right-m]
       (layer cache in cache/render/, rasterio drawing; a city renders in ~1-7 min;
-      PNG written to system temp then copied into png/ - OneDrive locks fresh files)
+      PNG written to system temp then copied into png/; was needed while the project was in OneDrive)
 render_poster.py --city C [--dpi]      -- Current product: dark bmy_bright poster (wraps the above)
 sketch_access.py --city C --stop REGEX  -- Diagnostic access sketch around a stop
       [--recompute] [--name] [--suffix]    (--recompute: current rules, just these stops)

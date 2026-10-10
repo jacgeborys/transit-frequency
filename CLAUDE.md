@@ -3,6 +3,10 @@
 Pipeline, architecture and status live in `README.md`; keep it updated. This file covers
 where data comes from and how to produce maps.
 
+The project lives at `D:\QGIS\TransitFrequency` (moved 2026-10-10 out of OneDrive on C:, which
+was full: 37 GB incl. `_data`, `cache`, `network`). D: doesn't record file ownership, so git needs
+`git config --global --add safe.directory D:/QGIS/TransitFrequency` (already set on this machine).
+
 ## Basemap / geodata sources (prefer in this order)
 
 1. **`D:\QGIS\osm_basemap\<city>\`**: OSM layers fetched by `D:\QGIS\osm_basemap\fetch_osm_basemap.py`
@@ -62,7 +66,7 @@ Full city reruns are slow (coverage step: Warsaw ~2x20 min, Berlin ~2x30 min). W
 re-implementation of the QGIS print layouts in `transit-frequency-map.qgz` (it reads the
 project for layout, styles and layer stack; cities without a layout use `template` from
 cities.py). Header texts per city: `POSTER` in render_poster.py. Renders write via the
-system temp folder (OneDrive locks fresh files in png/).
+system temp folder (a leftover from when the project was in OneDrive, which locked fresh files).
 
 Style experiments: `script/_style_grid.py --set light|dark --crop lon,lat,w_m,h_m --name N`
 renders one crop in many variants side by side (png/previews/style_grid_N.png). Crops are
