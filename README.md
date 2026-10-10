@@ -78,7 +78,17 @@ in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar 
 under-served.
 Thumbnails of every map: `png/archive/how_it_was_made/thumbs/*_thumb.png`.
 
-**New York + Amsterdam (2026-10-10, in progress)**: New York = the Manhattan config with the frame
+**Finals 2026-10-11 (both routing fixes, raster coverage)**:
+`png/how_many_rides_in_5_mins_newyork_2026_10_14_dark_bmy_bright_hq.png` (manhattan key, 16.6 x
+17.5 km frame, title NEW YORK; isochrones avg 27.9 ha, 8,613/8,659 stops) and
+`png/how_many_rides_in_5_mins_amsterdam_2026_10_14_dark_bmy_bright_hq.png` (avg 20.8 ha,
+1,543/1,587 stops; skipped: Schiphol terminal platforms, edge stops in Zaandam/Muiden).
+Raster coverage: New York 3.3 + 3.3 min (vector ~70 min each), Amsterdam ~0.5 min each.
+Overnight: a vector-vs-raster check on New York and a larger New York candidate (`newyork` key,
+18.6 x 30.5 km incl. Staten Island buses) via run_city.py; previews
+`png/previews/newyork_poster_150.png` (larger) and `newyork_17km_poster_150.png` (current).
+
+**New York + Amsterdam (2026-10-10)**: New York = the Manhattan config with the frame
 grown 3 km south + 5 km east (`render_frame` (-3100, -11100, 13500, 6370), 16.6 x 17.5 km,
 bbox 40.599-40.814 N, -74.068..-73.792), poster title "NEW YORK"; 8,659 stops, 1.04 M departures
 on Wed 14.10. Amsterdam = city core 52.290-52.425 N, 4.755-5.030 E (EPSG:28992, Kraków template,
