@@ -240,6 +240,8 @@ CITIES = {
         'exact_service_match': True,
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
+        # Geofabrik regions (make_osm_extract.py); the frame's left edge touches Jersey City/Bayonne
+        'osm_pbf': ['north-america/us/new-york', 'north-america/us/new-jersey'],
         'network_tiles': 9,  # 7 before the 2026-10-10 bbox growth (tiles ~same size)
         'template': 'krakow',  # OSM layer stack (Warsaw's uses its old roads.shp); page follows render_frame
     },
@@ -266,11 +268,13 @@ CITIES = {
 
     'amsterdam': {
         'name': 'Amsterdam',
-        # Municipality (52.278-52.431 N, 4.729-5.079 E; Weesp's polders reach 5.108) + ~500 m
+        # City core (2026-10-10, smaller than the municipality 52.278-52.431 N, 4.729-5.108 E):
+        # ring + Noord, Nieuw-West, Zuidoost, IJburg, Schiphol at the edge; no Weesp/polders
         'bbox': {
-            'south': 52.272, 'west': 4.720,
-            'north': 52.437, 'east': 5.090,
+            'south': 52.290, 'west': 4.755,
+            'north': 52.425, 'east': 5.030,
         },
+        'osm_pbf': ['europe/netherlands/noord-holland'],  # Geofabrik, see make_osm_extract.py
         'crs_metric': 'EPSG:28992',  # RD New (metres)
         'gtfs': {
             # OVapi: all of the Netherlands (NS, GVB, Connexxion, EBS, ...), clipped to the bbox
@@ -282,8 +286,8 @@ CITIES = {
         'has_frequencies': False,
         'network_tiles': 6,
         'template': 'krakow',
-        # EPSG:28992 m: the bbox minus 500 m (24.1 x 17.2 km, landscape like Kraków's layout)
-        'render_frame': (110130, 476710, 134210, 493900),
+        # EPSG:28992 m: the bbox minus 400 m (17.8 x 14.1 km, landscape like Kraków's layout)
+        'render_frame': (112400, 478590, 130230, 492680),
     },
 }
 

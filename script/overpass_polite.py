@@ -11,6 +11,9 @@ Polite Overpass API requests, shared by the network and basemap fetchers.
   process's failure makes the others wait as well.
 - A mirror (if SERVERS lists any) that fails 3 times in a row is dropped for the rest of the run.
 - The User-Agent names the project (USER_AGENT), whatever headers the caller passes.
+- With the environment variable OSM_LOCAL_PBF set (';'-separated city extracts made by
+  make_osm_extract.py from Geofabrik files), nothing is sent: queries are answered locally
+  by osm_local.py, and pause() skips the courtesy waits between requests.
 
 A copy of this file lives next to D:\\QGIS\\osm_basemap\\fetch_osm_basemap.py (not a git
 repo); keep the two in sync.
@@ -33,6 +36,7 @@ USER_AGENT = 'transit-frequency-map/1.0 (+https://github.com/jacgeborys/transit-
 MAX_FAILS = 3          # consecutive failures before a mirror is dropped (main server never)
 BACKOFF_BASE, BACKOFF_MAX = 60, 600   # s
 _fails = {u: 0 for u in SERVERS}      # this process (mirror dropping)
+LOCAL_PBF = [f for f in os.environ.get('OSM_LOCAL_PBF', '').split(';') if f]
 
 _DIR = Path(tempfile.gettempdir()) / 'overpass_polite'
 _LOCK = _DIR / 'request.lock'
@@ -150,8 +154,17 @@ def wait_for_slot(url, headers, log, max_wait=600):
         waited += wait
 
 
+def pause(secs):
+    """Courtesy wait between requests to the server (none when answering from local extracts)."""
+    if not LOCAL_PBF:
+        time.sleep(secs)
+
+
 def post(query, headers, timeout=180, attempts=6, log=None):
     """POST an Overpass query politely. Returns the parsed JSON, or None if all attempts fail."""
+    if LOCAL_PBF:
+        import osm_local
+        return osm_local.query(query, LOCAL_PBF)
     log = log or (lambda msg: print(msg, end=' ', flush=True))
     for attempt in range(attempts):
         live = [u for u in SERVERS if u == SERVERS[0] or _fails[u] < MAX_FAILS]

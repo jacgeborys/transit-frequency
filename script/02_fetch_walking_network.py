@@ -216,7 +216,7 @@ def main():
                 failed.append(tile)
 
             if i < len(pending) and not cached:
-                time.sleep(10)  # be polite between real downloads
+                overpass_polite.pause(10)  # be polite between real downloads
         pending = failed
         if not pending:
             break
