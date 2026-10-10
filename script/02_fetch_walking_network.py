@@ -134,11 +134,12 @@ def main():
     add_city_argument(parser)
     parser.add_argument('--download-only', action='store_true',
                         help='Only download/cache the tiles; build the graph in a later run')
-    parser.add_argument('--reuse-from', default=None,
-                        help='tile_cache folder of an earlier run with another bbox: its tiles are '
-                             'merged in and only the parts outside its bbox are downloaded')
-    parser.add_argument('--reuse-bbox', default=None, help='bbox of --reuse-from: south,west,north,east')
-    parser.add_argument('--reuse-tiles', type=int, default=None, help='tile grid n of --reuse-from')
+    parser.add_argument('--reuse-from', nargs='+', default=None,
+                        help='tile_cache folder(s) of an earlier run with another bbox: all their '
+                             'tiles are merged in and only the parts outside its bbox are '
+                             'downloaded. If that run itself reused an older cache, pass that '
+                             'folder too (its cache then only holds strips)')
+    parser.add_argument('--reuse-bbox', default=None, help='bbox of the earlier run: south,west,north,east')
     parser.add_argument('--graphml', action='store_true',
                         help='Also save GraphML (slow and memory-hungry; 03 only needs the pickle)')
     args = parser.parse_args()
@@ -173,19 +174,21 @@ def main():
     jsons = []
 
     if args.reuse_from:
-        # Old run: its tiles cover old bbox completely (ways + all their nodes). Merge the ones
-        # touching the new bbox; download only the new tiles' parts outside the old bbox.
+        # Old run: its tiles (and those of the run it reused, if any) cover the old bbox
+        # completely (ways + all their nodes). Merge them all (a cache built with reuse holds
+        # strips, not a plain grid); download only the new tiles' parts outside the old bbox.
         s_, w_, n_, e_ = (float(v) for v in args.reuse_bbox.split(','))
         ob = {'south': s_, 'west': w_, 'north': n_, 'east': e_}
-        for t in create_tiles(ob, n=args.reuse_tiles):
-            f = Path(args.reuse_from) / f"tile_{t['id']}.json"
-            if f.exists() and split_against(t, bbox) is not None:
-                jsons.append(json.loads(f.read_text(encoding='utf-8')))
+        for folder in args.reuse_from:
+            files = sorted(Path(folder).glob('tile_*.json'))
+            if not files:
+                sys.exit(f"ERROR: no tile_*.json in {folder}")
+            jsons.extend(json.loads(f.read_text(encoding='utf-8')) for f in files)
         new_tiles = []
         for t in tiles:
             strips = split_against(t, ob)
             new_tiles.extend([t] if strips is None else strips)
-        print(f"Reusing {len(jsons)} tiles from {args.reuse_from}; "
+        print(f"Reusing {len(jsons)} tiles from {', '.join(args.reuse_from)}; "
               f"{len(new_tiles)} tiles/strips to download instead of {len(tiles)} tiles")
         print()
         tiles = new_tiles

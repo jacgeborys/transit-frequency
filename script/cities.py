@@ -204,11 +204,11 @@ CITIES = {
     },
 
     'manhattan': {
-        'name': 'Manhattan',
+        'name': 'Manhattan',  # poster title "NEW YORK" (frame reaches deep into Brooklyn/Queens)
         # Covers the rotated render frame below (+ ~400 m so edge stops' isochrones are whole)
         'bbox': {
-            'south': 40.643, 'west': -74.052,
-            'north': 40.813, 'east': -73.848,
+            'south': 40.599, 'west': -74.068,
+            'north': 40.814, 'east': -73.792,
         },
         'crs_metric': 'EPSG:32618',  # UTM 18N (metres); NY State Plane is in US feet
         # Render rotated so the Hudson is vertical (oblique Mercator, gamma = rotation):
@@ -216,9 +216,10 @@ CITIES = {
         # (gamma 69 = Hudson exactly vertical; 66 = island upright, Hudson leaning 3 deg)
         'render_crs': ('+proj=omerc +lat_0=40.745 +lonc=-73.975 +alpha=90 +gamma=66 +k_0=1 '
                        '+x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs'),
-        # m in render_crs: Park Slope/Red Hook .. Central Park north, Hudson .. Jackson Heights
-        # (11.6 x 14.5 km; corners checked to lie inside bbox)
-        'render_frame': (-3100, -8100, 8500, 6370),
+        # m in render_crs: Upper Bay/Marine Park .. Central Park north, Hudson .. Fresh Meadows
+        # (16.6 x 17.5 km since 2026-10-10: old 11.6 x 14.5 km frame + 3 km south, 5 km east;
+        # corners checked to lie inside bbox)
+        'render_frame': (-3100, -11100, 13500, 6370),
         'legend_corner': 'top-right',  # over Queens: bottom-left would cover Lower Manhattan
         'gtfs': {
             'subway': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip',
@@ -239,7 +240,7 @@ CITIES = {
         'exact_service_match': True,
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
-        'network_tiles': 7,
+        'network_tiles': 9,  # 7 before the 2026-10-10 bbox growth (tiles ~same size)
         'template': 'krakow',  # OSM layer stack (Warsaw's uses its old roads.shp); page follows render_frame
     },
 
@@ -261,6 +262,28 @@ CITIES = {
         'template': 'krakow',
         # EPSG:2180 m: 85 % of the bbox, centred between it and the coverage's centre of mass
         'render_frame': (740050, 370830, 756850, 388630),
+    },
+
+    'amsterdam': {
+        'name': 'Amsterdam',
+        # Municipality (52.278-52.431 N, 4.729-5.079 E; Weesp's polders reach 5.108) + ~500 m
+        'bbox': {
+            'south': 52.272, 'west': 4.720,
+            'north': 52.437, 'east': 5.090,
+        },
+        'crs_metric': 'EPSG:28992',  # RD New (metres)
+        'gtfs': {
+            # OVapi: all of the Netherlands (NS, GVB, Connexxion, EBS, ...), clipped to the bbox
+            'nl': 'http://gtfs.ovapi.nl/nl/gtfs-nl.zip',
+        },
+        'gtfs_merge': 'prefixed',  # one feed, but its bbox clip + chunked reading are needed
+        'exact_service_match': True,
+        'vehicle_classify': _route_type_only,
+        'has_frequencies': False,
+        'network_tiles': 6,
+        'template': 'krakow',
+        # EPSG:28992 m: the bbox minus 500 m (24.1 x 17.2 km, landscape like Kraków's layout)
+        'render_frame': (110130, 476710, 134210, 493900),
     },
 }
 

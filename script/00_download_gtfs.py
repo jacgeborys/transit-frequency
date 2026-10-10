@@ -517,6 +517,13 @@ def download_krakow(city: dict, combined_dir: Path):
     logger.info('Cleaned up raw downloads')
 
 
+def read_filtered(path: Path, col: str, keep: set, chunksize=2_000_000, **kw) -> pd.DataFrame:
+    """Read a GTFS table in chunks, keeping only rows whose `col` is in `keep`."""
+    parts = [ch[ch[col].isin(keep)] for ch in
+             pd.read_csv(path, dtype=str, encoding='utf-8-sig', chunksize=chunksize, **kw)]
+    return pd.concat(parts, ignore_index=True)
+
+
 def download_prefixed(city: dict, combined_dir: Path):
     """Merge many independent feeds (e.g. New York: MTA subway, borough buses, rail, PATH, ferry).
 
@@ -553,16 +560,15 @@ def download_prefixed(city: dict, combined_dir: Path):
         stops = stops[(lat >= b['south']) & (lat <= b['north']) &
                       (lon >= b['west']) & (lon <= b['east'])].copy()
         keep_stops = set(stops['stop_id'])
-        st = pd.read_csv(d / 'stop_times.txt', dtype=str, encoding='utf-8-sig',
-                         usecols=lambda c: c in ('trip_id', 'stop_id', 'arrival_time',
-                                                 'departure_time', 'stop_sequence'))
-        st = st[st['stop_id'].isin(keep_stops)].copy()
+        # Chunked: a national feed (e.g. all of the Netherlands) is too big to load at once
+        st = read_filtered(d / 'stop_times.txt', 'stop_id', keep_stops,
+                           usecols=lambda c: c in ('trip_id', 'stop_id', 'arrival_time',
+                                                   'departure_time', 'stop_sequence'))
         trips = pd.read_csv(d / 'trips.txt', dtype=str, encoding='utf-8-sig')
         trips = trips[trips['trip_id'].isin(set(st['trip_id']))].copy()
         routes = pd.read_csv(d / 'routes.txt', dtype=str, encoding='utf-8-sig')
         routes = routes[routes['route_id'].isin(set(trips['route_id']))].copy()
-        cal = pd.read_csv(d / 'calendar_dates.txt', dtype=str, encoding='utf-8-sig')
-        cal = cal[cal['service_id'].isin(set(trips['service_id']))].copy()
+        cal = read_filtered(d / 'calendar_dates.txt', 'service_id', set(trips['service_id']))
 
         stops['stop_id'] = idp + stops['stop_id']
         if 'parent_station' in stops.columns:
