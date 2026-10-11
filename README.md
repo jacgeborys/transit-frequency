@@ -126,6 +126,14 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
 
 ### Next steps / open ideas
 
+- **Coastline across a region border (found 2026-10-11, New York)**: the sea layer is built from
+  `natural=coastline` in the city's extracts. With New York state only, the New Jersey shore is
+  missing, so Jersey City/Hoboken were classed as sea. Patched by hand for `newyork` (water + sea
+  rebuilt with `OSM_LOCAL_PBF` = New York + New Jersey extracts; NJ-less versions in
+  `D:\QGIS\osm_basemap
+ewyork\_nj_less`). A `run_city.py` rerun from scratch would bring it back:
+  decide between listing New Jersey in `osm_pbf` (NJ roads/buildings drawn too, unserved) or a
+  water-only extra region.
 - **Published maps carry a routing error (found 2026-10-10)**: 02 merged its download tiles
   without dropping repeated ways, and 03 built the routing matrix with `csr_matrix`, which *adds
   up* duplicate entries, so every way crossing a tile border was routed at 2-4x its length
