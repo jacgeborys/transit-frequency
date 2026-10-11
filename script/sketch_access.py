@@ -42,7 +42,8 @@ def recompute(city, st, stops):
     with open(city['network_dir'] / 'walking_network.pkl', 'rb') as f:
         G = pickle.load(f)
     access = {'closed_gates': closed_gate_ids(osm, crs), 'private_ways': private_way_ids(osm)}
-    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access, iso.load_dem(city))
+    dem = None if city.get('_flat') else iso.load_dem(city)   # --flat: compare without hills
+    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access, dem)
     del G
     grid = iso.BarrierGrid(city, crs, coords, access['closed_gates'])
     ctx = {'coords': coords, 'grid': grid, 'gate_net': gate_net, 'sparse': None}
@@ -66,6 +67,8 @@ def main():
     parser.add_argument('--radius', type=float, default=450, help='Half-width of the view in m')
     parser.add_argument('--highlight', help='gpkg of polygons to outline in blue (e.g. uncovered plots)')
     parser.add_argument('--name', help='Title / file name (default: first matching stop)')
+    parser.add_argument('--flat', action='store_true',
+                        help='With --recompute: ignore hills (compare slope-aware walking with flat)')
     parser.add_argument('--recompute', action='store_true',
                         help='Recompute these stops with the current rules instead of reading the city files')
     parser.add_argument('--suffix', default='', help='Appended to the output file name')
@@ -73,6 +76,7 @@ def main():
     args = parser.parse_args()
 
     city = get_city(args.city)
+    city['_flat'] = args.flat
     crs = city['crs_metric']
     osm = city['osm_dir']
     data_dir = Path(args.data_folder) if args.data_folder else sorted(
