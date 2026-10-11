@@ -19,6 +19,7 @@ step logs: <data folder>/logs/<step>.txt. Coverage uses 04_coverage_raster.py (s
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -51,6 +52,16 @@ def newer(outputs, inputs):
         return False
     t_in = max((Path(i).stat().st_mtime for i in inputs if Path(i).exists()), default=0)
     return min(o.stat().st_mtime for o in outs) > t_in
+
+
+def set_aside(folder):
+    """Move a derived folder to <name>_previous (replacing an older one) before rebuilding it."""
+    folder = Path(folder)
+    if folder.exists():
+        prev = folder.with_name(folder.name + '_previous')
+        if prev.exists():
+            shutil.rmtree(prev)
+        folder.rename(prev)
 
 
 def run(cmd, log, env=None):
@@ -125,20 +136,30 @@ def main():
         if todo('counts', [counts], [data / 'stop_times.txt']):
             dt = run(['01_calculate_trip_counts.py', '--city', key, date, data], logs / '01.txt')
             milestone(city, f"counts done ({dt / 60:.1f} min)")
-        if todo('osm', extracts):
+        # Always asked: make_osm_extract.py itself knows whether the extract is current (source
+        # date + .bbox stamp) and returns in seconds if so. An existing file alone is not
+        # enough: after a bbox change it would silently feed the old area to every later step.
+        stamps = [e.with_suffix('.bbox') for e in extracts]
+        if STEPS.index('osm') <= last:
             if not regions:
                 raise RuntimeError("cities.py has no 'osm_pbf' (Geofabrik regions) for this city")
+            before = [s.stat().st_mtime if s.exists() else 0 for s in stamps]
+            if first == STEPS.index('osm'):
+                for st in stamps:   # forced: re-cut (not re-download) the extract
+                    if st.exists():
+                        st.unlink()
             dt = run(['make_osm_extract.py', '--city', key], logs / 'extract.txt')
-            milestone(city, f"osm extract done ({dt / 60:.1f} min)")
-        if todo('basemap', [osm_dir / 'buildings.gpkg', osm_dir / 'underground_ids.txt'], extracts):
+            if [s.stat().st_mtime if s.exists() else 0 for s in stamps] != before:
+                milestone(city, f"osm extract done ({dt / 60:.1f} min)")
+        if todo('basemap', [osm_dir / 'buildings.gpkg', osm_dir / 'underground_ids.txt'], stamps):
+            set_aside(osm_dir)   # the fetcher skips layers that exist: start from an empty folder
             b = city['bbox']
             dt = run([BASEMAP_FETCHER, '--bbox', f"{b['south']},{b['west']},{b['north']},{b['east']}",
                       '--name', key, '--crs', city['crs_metric']], logs / 'basemap.txt', env)
             dt += run(['drop_underground_buildings.py', '--city', key], logs / 'underground.txt', env)
             milestone(city, f"basemap done ({dt / 60:.1f} min)")
-        if todo('network', [net], extracts):
-            if first is not None and net.exists():
-                net.unlink()   # forced: 02 refuses to overwrite
+        if todo('network', [net], stamps):
+            set_aside(city['network_dir'])   # 02 refuses to overwrite and reuses cached tiles
             dt = run(['02_fetch_walking_network.py', '--city', key], logs / '02.txt', env)
             milestone(city, f"network done ({dt / 60:.1f} min)")
         iso = [data / 'isochrones_gates.gpkg', data / 'isochrones_gates_residents.gpkg']
