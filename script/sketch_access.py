@@ -42,14 +42,15 @@ def recompute(city, st, stops):
     with open(city['network_dir'] / 'walking_network.pkl', 'rb') as f:
         G = pickle.load(f)
     access = {'closed_gates': closed_gate_ids(osm, crs), 'private_ways': private_way_ids(osm)}
-    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access)
+    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access, iso.load_dem(city))
     del G
     grid = iso.BarrierGrid(city, crs, coords, access['closed_gates'])
     ctx = {'coords': coords, 'grid': grid, 'gate_net': gate_net, 'sparse': None}
     _, k = gate_net['public_tree'].query(np.column_stack([st.stop_lon, st.stop_lat]))
+    isls = iso.island_starts(gate_net, coords, stops.geometry.x.to_numpy(), stops.geometry.y.to_numpy())
     pubs, ress = [], []
-    for sid, p, nn in zip(st.stop_id, stops.geometry, gate_net['public_idx'][k]):
-        poly, poly_res = iso.compute_stop(nn, p.x, p.y, ctx)
+    for sid, p, nn, isl in zip(st.stop_id, stops.geometry, gate_net['public_idx'][k], isls):
+        poly, poly_res = iso.compute_stop(nn, p.x, p.y, ctx, int(isl))
         if poly is not None:
             pubs.append((sid, poly))
             ress.append((sid, poly_res if poly_res is not None else poly))

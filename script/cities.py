@@ -314,6 +314,7 @@ CITIES['zurich'] = {
     'vehicle_classify': _route_type_only,
     'has_frequencies': False,
     'osm_pbf': ['europe/switzerland'],
+    'hills': True, 'dem': 'swissalti3d',   # slope-aware walking (fetch_dem.py, 03)
     'network_tiles': 6,
     'template': 'krakow',
     # EPSG:2056 m: bbox minus 400 m (13.3 x 12.7 km)
@@ -334,6 +335,7 @@ CITIES['sanfrancisco'] = {
     'vehicle_classify': _route_type_only,
     'has_frequencies': False,
     'osm_pbf': ['north-america/us/california/norcal'],
+    'hills': True, 'dem': 'usgs13',        # slope-aware walking (fetch_dem.py, 03)
     'network_tiles': 8,
     'template': 'krakow',
     # m in UTM 10N: bbox minus 400 m (29.0 x 21.2 km)

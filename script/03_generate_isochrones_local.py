@@ -57,6 +57,11 @@ MIN_HOLE_M2 = 200                 # enclosed holes smaller than this are filled
 MIN_PART_M2 = 50                  # detached fragments smaller than this are dropped
 OPEN, BUILDING, BARRIER, GATE = 0, 1, 2, 3  # GATE: closed gate in a fence, residents only
 ISLAND_MAX_NODES = 5000           # public path islands reachable only via private edges
+ISLAND_STOP_M = 30                # a stop this close to an island path also walks inside it
+# Slope-aware walking (cities with 'hills': True and a DEM from fetch_dem.py)
+DEM_SAMPLE_M = 10.0               # elevation sampled along every edge at this spacing
+STEPS_MIN_SLOPE = 0.25            # stairs: terrain models smooth them out, count at least this
+MAX_SLOPE = 1.0                   # clamp DEM noise (cliffs, retaining walls)
 GATE_RADIUS_M = 2.5               # opening punched into the fence around a gate node
 EIGHT = np.ones((3, 3), dtype=bool)
 # Raster cost per cell value (OPEN, BUILDING, BARRIER, GATE)
@@ -111,7 +116,72 @@ def _csr_min(weights, rows, cols, n):
     return csr_matrix((w[first], (r[first], c[first])), shape=(n, n))
 
 
-def convert_to_sparse(G, crs_metric: str, access=None):
+def tobler_factor(slope):
+    """Walking time on this slope relative to flat ground, the same both ways: the mean of the
+    uphill and downhill time from Tobler's hiking function v = 6 exp(-3.5 |s + 0.05|) km/h."""
+    s = np.minimum(np.abs(slope), MAX_SLOPE)
+    v0 = np.exp(-3.5 * 0.05)
+    return 0.5 * (v0 / np.exp(-3.5 * np.abs(s + 0.05)) + v0 / np.exp(-3.5 * np.abs(0.05 - s)))
+
+
+def load_dem(city):
+    """(elevation array, rasterio transform) for a city with 'hills', or None."""
+    if not city.get('hills'):
+        return None
+    path = Path(r'D:\QGIS\osm_basemap\dem') / f"{city['key']}.tif"
+    if not path.exists():
+        print(f"WARNING: {city['name']} has 'hills' but no {path} (run fetch_dem.py): walking stays flat")
+        return None
+    import rasterio
+    with rasterio.open(path) as d:
+        a = d.read(1).astype('float32')
+        if d.nodata is not None and not np.isnan(d.nodata):
+            a[a == d.nodata] = np.nan
+        return a, d.transform
+
+
+def hill_weights(lengths, a_xy, b_xy, highway, structure, dem):
+    """Edge cost = sum over ~10 m pieces of piece length x tobler_factor(piece slope)."""
+    from scipy.ndimage import map_coordinates
+    arr, tr = dem
+    n_p = np.maximum(1, np.ceil(lengths / DEM_SAMPLE_M)).astype(np.int64)
+    edge = np.repeat(np.arange(len(lengths)), n_p)
+    k = np.arange(len(edge)) - np.repeat(np.cumsum(n_p) - n_p, n_p)
+    t0, t1 = k / n_p[edge], (k + 1) / n_p[edge]
+    inv = ~tr
+
+    def z(t):
+        x = a_xy[edge, 0] + (b_xy[edge, 0] - a_xy[edge, 0]) * t
+        y = a_xy[edge, 1] + (b_xy[edge, 1] - a_xy[edge, 1]) * t
+        col, row = inv * (x, y)
+        return map_coordinates(arr, [row - 0.5, col - 0.5], order=1, mode='nearest', cval=np.nan)
+
+    piece = lengths[edge] / n_p[edge]
+    with np.errstate(invalid='ignore', divide='ignore'):
+        slope = np.where(piece > 0, (z(t1) - z(t0)) / piece, 0.0)
+    slope = np.nan_to_num(slope)
+    steps = np.asarray([h == 'steps' for h in highway])[edge]
+    slope = np.where(steps, np.maximum(np.abs(slope), STEPS_MIN_SLOPE), slope)
+    f = tobler_factor(slope)
+    flat = np.asarray([st in ('bridge', 'tunnel') for st in structure])[edge]
+    f = np.where(flat, 1.0, f)
+    w = np.bincount(edge, weights=piece * f, minlength=len(lengths))
+    print(f"  Hills: {len(edge):,} pieces sampled; edge cost x{w.sum() / lengths.sum():.3f} on average, "
+          f"{(w > 1.25 * lengths).mean() * 100:.1f} % of edges over +25 %")
+    return w
+
+
+def island_starts(gate_net, coords, sx, sy):
+    """Per stop: an island node within ISLAND_STOP_M (it also walks inside that island), else -1."""
+    lab = gate_net['island_lab']
+    isl = np.where(lab >= 0)[0]
+    if not len(isl):
+        return np.full(len(sx), -1)
+    d, k = cKDTree(coords[isl]).query(np.column_stack([sx, sy]))
+    return np.where(d <= ISLAND_STOP_M, isl[k], -1)
+
+
+def convert_to_sparse(G, crs_metric: str, access=None, dem=None):
     """
     Convert NetworkX graph to scipy sparse matrix + coordinate arrays.
     Returns: (node_ids, KDTree, coords_metric, sparse_matrix, node_to_idx, gate_net)
@@ -134,13 +204,16 @@ def convert_to_sparse(G, crs_metric: str, access=None):
 
     # Build sparse adjacency matrix
     rows, cols, weights = [], [], []
-    private = []
+    private, highway, structure = [], [], []
     for u, v, data in G.edges(data=True):
         ui, vi = node_to_idx[u], node_to_idx[v]
         length = data.get('length', 0)
         rows.append(ui)
         cols.append(vi)
         weights.append(length)
+        if dem is not None:
+            highway.append(data.get('highway'))
+            structure.append(data.get('structure'))
         if access is not None:
             osmid = data.get('osmid')
             way_ids = osmid if isinstance(osmid, list) else [osmid]
@@ -151,6 +224,9 @@ def convert_to_sparse(G, crs_metric: str, access=None):
     # Dutch one-way cycle paths) one-directional, so 8-9 % of the edges could only be walked
     # one way and stops on them reached little or nothing (until 2026-10-11)
     n_dir = len(rows)
+    if dem is not None:   # walking time on slopes, as a flat-equivalent distance (same both ways)
+        weights = list(hill_weights(np.asarray(weights, float), coords_metric[rows],
+                                    coords_metric[cols], highway, structure, dem))
     rows, cols = rows + cols, cols + rows
     weights = weights + weights
     if access is not None:
@@ -178,6 +254,7 @@ def convert_to_sparse(G, crs_metric: str, access=None):
     on_pub[cols[pub]] = True
     sizes = np.bincount(lab[on_pub], minlength=lab.max() + 1)
     island = (sizes < ISLAND_MAX_NODES) & (np.arange(len(sizes)) != sizes.argmax())
+    island_lab = np.where(on_pub & island[lab], lab, -1).astype(np.int32)
     to_private = pub & island[lab[rows]]
     private = private | to_private
     print(f"  Public islands behind gates: {to_private.sum():,} edges reclassified private")
@@ -202,6 +279,7 @@ def convert_to_sparse(G, crs_metric: str, access=None):
         'private_node': ~has_public,
         'public_tree': cKDTree(lonlats[has_public]),
         'public_idx': np.where(has_public)[0],
+        'island_lab': island_lab,   # island id per node (-1: not in a reclassified island)
     }
     return node_ids, tree, coords_metric, sparse, node_to_idx, gate_net
 
@@ -449,21 +527,42 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=
     return unary_union(polys).simplify(CELL_M * 0.5, preserve_topology=True)
 
 
-def compute_stop(nn_idx, sx, sy, ctx):
+def island_reach(isl_idx, coords, gate_net, grid):
+    """Walk inside the island a stop sits in (JFK's terminals: reached from the city only via
+    private airport roads, but the AirTrain stops inside). Added to the stop's normal isochrone,
+    never replacing it (disconnected station mezzanines are islands too)."""
+    lab = gate_net['island_lab']
+    d = dijkstra(gate_net['full'], directed=True, indices=isl_idx, limit=DISTANCE_M)
+    nodes = np.where(np.isfinite(d) & (lab == lab[isl_idx]))[0]
+    if len(nodes) < 3:
+        return None
+    return create_isochrone_barriers(nodes, coords, gate_net['full'], grid)
+
+
+def _union(a, b):
+    if a is None or a.is_empty:
+        return b
+    return a if b is None or b.is_empty else a.union(b)
+
+
+def compute_stop(nn_idx, sx, sy, ctx, isl_idx=-1):
     """Isochrone(s) for one stop -> (public polygon, residents polygon or None)."""
     coords, grid, gate_net = ctx['coords'], ctx['grid'], ctx['gate_net']
     if gate_net is not None:
+        poly = poly_res = None
         reach = reachable_two_layer(nn_idx, (sx, sy), coords, gate_net, DISTANCE_M)
-        if reach is None:
-            return None, None
-        pub, res = reach
-        poly = create_isochrone_barriers(pub, coords, gate_net['public'], grid)
-        # Residents run: when private paths were reached or closed gates are nearby
-        if len(res) == 0 and not (_window_for(pub, coords, grid)[0] == GATE).any():
-            poly_res = poly
-        else:
-            poly_res = create_isochrone_barriers(
-                np.concatenate([pub, res]), coords, gate_net['full'], grid, residents=True)
+        if reach is not None:
+            pub, res = reach
+            poly = create_isochrone_barriers(pub, coords, gate_net['public'], grid)
+            # Residents run: when private paths were reached or closed gates are nearby
+            if len(res) == 0 and not (_window_for(pub, coords, grid)[0] == GATE).any():
+                poly_res = poly
+            else:
+                poly_res = create_isochrone_barriers(
+                    np.concatenate([pub, res]), coords, gate_net['full'], grid, residents=True)
+        if isl_idx >= 0 and grid is not None:
+            inner = island_reach(isl_idx, coords, gate_net, grid)
+            poly, poly_res = _union(poly, inner), _union(poly_res, inner)
         return poly, poly_res
     reachable = reachable_nodes(nn_idx, (sx, sy), coords, ctx['sparse'], DISTANCE_M)
     if reachable is None:
@@ -499,8 +598,8 @@ def process_chunk(task):
     """task = (chunk_start, [(stop_dict, nn_idx, sx, sy), ...]) -> (chunk_start, results, skipped)."""
     chunk_start, records = task
     results, skipped = [], 0
-    for stop, nn_idx, sx, sy in records:
-        poly, poly_res = compute_stop(nn_idx, sx, sy, _CTX)
+    for stop, nn_idx, sx, sy, isl_idx in records:
+        poly, poly_res = compute_stop(nn_idx, sx, sy, _CTX, isl_idx)
         if poly is not None and not poly.is_empty:
             results.append(stop_record(stop, poly, poly_res))
         else:
@@ -524,6 +623,7 @@ def save_shared(shared_dir, ctx):
         meta['mats'][name] = m.shape
     if ctx['gate_net'] is not None:
         np.save(shared_dir / 'private_node.npy', ctx['gate_net']['private_node'])
+        np.save(shared_dir / 'island_lab.npy', ctx['gate_net']['island_lab'])
     if ctx['grid'] is not None:
         np.save(shared_dir / 'grid.npy', ctx['grid'].grid)
         meta['grid'] = (ctx['grid'].x0, ctx['grid'].y1)
@@ -546,6 +646,7 @@ def _init_worker(shared_dir):
     if meta['gates']:
         gate_net = {k: mats[k] for k in ('public', 'full', 'two_layer')}
         gate_net['private_node'] = load('private_node')
+        gate_net['island_lab'] = load('island_lab')
     _CTX = {'coords': load('coords'), 'sparse': mats.get('sparse'),
             'gate_net': gate_net, 'grid': grid}
 
@@ -637,8 +738,9 @@ def main():
                   'private_ways': private_way_ids(city['osm_dir'])}
         print(f"{len(access['closed_gates']):,} closed gates, "
               f"{len(access['private_ways']):,} private ways")
+    dem = load_dem(city)
     node_ids, tree, coords_metric, sparse, node_to_idx, gate_net = convert_to_sparse(
-        G, crs_metric, access)
+        G, crs_metric, access, dem)
 
     # Free NetworkX graph to reclaim ~1.5 GB
     del G
@@ -656,7 +758,9 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g8"  # bump when access_rules change (g7: duplicates not summed; g8: edges walkable both ways)
+        params += "_g10"  # bump when access_rules change (g7: duplicates not summed; g8: edges two-way; g10: island walks for stops inside)
+    if dem is not None:
+        params += f"_hill{DEM_SAMPLE_M:g}"
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
@@ -666,8 +770,11 @@ def main():
     if gate_net is not None:
         _, k = gate_net['public_tree'].query(np.column_stack([lons, lats]))
         nns = gate_net['public_idx'][k]  # stops are on public streets
+        isls = island_starts(gate_net, coords_metric, sxs, sys_)
+        print(f"Stops also walking inside an island (JFK-like): {(isls >= 0).sum()}")
     else:
         _, nns = tree.query(np.column_stack([lons, lats]))
+        isls = np.full(len(stops), -1)
     stop_dicts = stops.to_dict('records')
 
     chunks = {}
@@ -681,7 +788,7 @@ def main():
     def tasks():
         for c in pending:
             idx = range(c, min(c + CHECKPOINT_EVERY, len(stops)))
-            yield c, [(stop_dicts[i], int(nns[i]), sxs[i], sys_[i]) for i in idx]
+            yield c, [(stop_dicts[i], int(nns[i]), sxs[i], sys_[i], int(isls[i])) for i in idx]
 
     workers = max(1, min(args.workers, len(pending)))
     print(f"Generating isochrones: {len(pending)} chunks of {CHECKPOINT_EVERY} stops to do "

@@ -19,6 +19,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -581,6 +582,71 @@ def expand_frequencies(d: Path):
     logger.info(f'  {d.name}: frequencies.txt expanded into {len(trips):,} trips')
 
 
+def calendar_for(d: Path, services: set) -> pd.DataFrame:
+    """calendar_dates rows (service_id, date, exception_type=1) of just these services.
+
+    Vectorised and after clipping: a national feed's calendar.txt expanded row by row over a
+    year took >15 min and 6 GB for Switzerland. calendar.txt patterns become dates, then
+    calendar_dates.txt removals (2) are dropped and additions (1) added."""
+    parts = []
+    if (d / 'calendar.txt').exists():
+        cal = pd.read_csv(d / 'calendar.txt', dtype=str, encoding='utf-8-sig')
+        cal = cal[cal['service_id'].isin(services)]
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        for r in cal.itertuples(index=False):
+            dates = pd.date_range(r.start_date, r.end_date, freq='D')
+            on = np.array([getattr(r, day) == '1' for day in days])
+            dates = dates[on[dates.weekday]]
+            if len(dates):
+                parts.append(pd.DataFrame({'service_id': r.service_id,
+                                           'date': dates.strftime('%Y%m%d')}))
+    out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=['service_id', 'date'])
+    if (d / 'calendar_dates.txt').exists():
+        ex = read_filtered(d / 'calendar_dates.txt', 'service_id', services)
+        ex['date'] = ex['date'].astype(str)
+        rm = ex[ex['exception_type'].astype(str) == '2']
+        if len(rm):
+            out = out.merge(rm[['service_id', 'date']], how='left', indicator=True)
+            out = out[out['_merge'] == 'left_only'].drop(columns='_merge')
+        add = ex[ex['exception_type'].astype(str) == '1'][['service_id', 'date']]
+        out = pd.concat([out, add], ignore_index=True).drop_duplicates()
+    out['exception_type'] = '1'
+    return out
+
+
+def expand_frequencies_clipped(d: Path, trips: pd.DataFrame, st: pd.DataFrame):
+    """Like expand_frequencies(), but on the clipped tables: frequency template trips become one
+    trip per departure. The offset is taken from the template's first departure in the whole
+    feed (read just for those trips), not from its first stop inside the bbox."""
+    f = d / 'frequencies.txt'
+    if not f.exists() or f.stat().st_size == 0:
+        return trips, st
+    freq = pd.read_csv(f, dtype=str, encoding='utf-8-sig')
+    freq = freq[freq['trip_id'].isin(set(trips['trip_id']))]
+    if freq.empty:
+        return trips, st
+    full = read_filtered(d / 'stop_times.txt', 'trip_id', set(freq['trip_id']),
+                         usecols=lambda c: c in ('trip_id', 'departure_time'))
+    t0 = full.groupby('trip_id')['departure_time'].agg(lambda x: min(_secs(v) for v in x))
+    new_t, new_st = [trips[~trips['trip_id'].isin(freq['trip_id'])]], [st[~st['trip_id'].isin(freq['trip_id'])]]
+    for trip_id, rows in freq.groupby('trip_id'):
+        tmpl = st[st['trip_id'] == trip_id]
+        arr = tmpl['arrival_time'].map(_secs) - t0[trip_id]
+        dep = tmpl['departure_time'].map(_secs) - t0[trip_id]
+        base = trips[trips['trip_id'] == trip_id].iloc[0]
+        k = 0
+        for _, r in rows.iterrows():
+            for start in range(_secs(r['start_time']), _secs(r['end_time']), int(r['headway_secs'])):
+                tid = f"{trip_id}_f{k}"
+                k += 1
+                new_t.append(base.to_frame().T.assign(trip_id=tid))
+                new_st.append(tmpl.assign(trip_id=tid, arrival_time=(arr + start).map(_hms),
+                                          departure_time=(dep + start).map(_hms)))
+    trips, st = pd.concat(new_t, ignore_index=True), pd.concat(new_st, ignore_index=True)
+    logger.info(f'  {d.name}: frequencies expanded into {len(trips):,} trips (clipped)')
+    return trips, st
+
+
 def read_filtered(path: Path, col: str, keep: set, chunksize=2_000_000, **kw) -> pd.DataFrame:
     """Read a GTFS table in chunks, keeping only rows whose `col` is in `keep`."""
     parts = [ch[ch[col].isin(keep)] for ch in
@@ -615,8 +681,6 @@ def download_prefixed(city: dict, combined_dir: Path):
             cal['end_date'] = cal['end_date'].where(cal['end_date'] > '20271231', '20271231')
             cal.to_csv(d / 'calendar.txt', index=False)
             logger.warning(f'{feed}: calendar.txt end dates stretched to 2027-12-31 (stale feed)')
-        expand_frequencies(d)
-        ensure_calendar_dates(d)
         idp = groups.get(feed, feed) + '_'   # stop_id / route_id prefix (shared within a group)
         fp = feed + '_'                       # trip_id / service_id prefix (per feed)
 
@@ -629,11 +693,12 @@ def download_prefixed(city: dict, combined_dir: Path):
         st = read_filtered(d / 'stop_times.txt', 'stop_id', keep_stops,
                            usecols=lambda c: c in ('trip_id', 'stop_id', 'arrival_time',
                                                    'departure_time', 'stop_sequence'))
-        trips = pd.read_csv(d / 'trips.txt', dtype=str, encoding='utf-8-sig')
-        trips = trips[trips['trip_id'].isin(set(st['trip_id']))].copy()
+        trips = read_filtered(d / 'trips.txt', 'trip_id', set(st['trip_id']))
+        trips, st = expand_frequencies_clipped(d, trips, st)
         routes = pd.read_csv(d / 'routes.txt', dtype=str, encoding='utf-8-sig')
         routes = routes[routes['route_id'].isin(set(trips['route_id']))].copy()
-        cal = read_filtered(d / 'calendar_dates.txt', 'service_id', set(trips['service_id']))
+        # Calendars expanded only now, for the services left after clipping
+        cal = calendar_for(d, set(trips['service_id']))
 
         stops['stop_id'] = idp + stops['stop_id']
         if 'parent_station' in stops.columns:
