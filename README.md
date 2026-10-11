@@ -112,8 +112,11 @@ New Jersey is intentionally left out). A whole city's basemap: ~10-16 min instea
 to the 04 schema). Lublin: 100.00 % of pixels identical to the vector map; Kraków 99.67 %
 (1-px edge specks, truth split between both). The vector method's geometry repair fills holes
 in some invalid isochrones (e.g. 2,450 m² near Oratoryjna, Lublin); the raster keeps them.
-Kraków 1.1 min vs 5.9 min. Full-size timing/comparison for New York + Amsterdam queued after
-tonight's run (`compare_coverage.py`, previews `compare_raster_vs_vector_*.png`).
+Kraków 1.1 min vs 5.9 min. **New York (full size, idle machine): raster 3.3 min vs vector
+61.9 min**; 99.36 % of 71.8 M pixels identical, 99.61 % same colour class; the rest are 1-px edge
+specks where the brute-force true value matches the raster more often than the vector (274 vs 106
+of 400 sampled). Raster is now the default (run_city.py); the vector 04 stays as a check
+(`run_city.py --vector`). Comparison maps: `png/archive/how_it_was_made/comparisons/compare_raster_vs_vector_*.png`.
 
 Also available: light chroma maps `…_gates_buildings_chroma.png` (all three cities), other
 dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
