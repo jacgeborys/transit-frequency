@@ -103,9 +103,10 @@ perceived-lightness floor (`--min-lightness 34`) and a brighter top (`--palette-
   for `newyork` by rebuilding water + sea with a New Jersey extract (NJ-less versions in
   `D:\QGIS\osm_basemap\newyork\_nj_less`). A rerun from scratch would bring it back: decide between
   New Jersey in `osm_pbf` (NJ drawn in full, unserved) or a water-only extra region.
+- **Legend too small on large pages** (New York, San Francisco, Berlin): the legend does not scale
+  with the page like the header does (`draw_legend` vs `draw_headline`); fix before publishing.
 - **Legend placement**: only corners (`legend_corner`); Zurich (over Zollikon) and San Francisco
   (over San Leandro Bay) would look better with the legend in the lake/Bay.
-- **Berlin legend too small**: the legend does not scale with the page like the header does.
 - **Amsterdam** predates the island walk (Schiphol terminal platforms skipped); rerun from iso if wanted.
 - OSM details seen: the crooked block of Lombard St is tagged private (its sidewalks are public).
 - Ideas not done: fewer, wider classes (8-10); faint district labels; a legend line for
