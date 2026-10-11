@@ -12,6 +12,7 @@ Usage:
 Then run the fetchers with OSM_LOCAL_PBF set to the printed file list (';'-separated).
 """
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -82,10 +83,14 @@ def main():
     for region in city['osm_pbf']:
         src = download(region, args.refresh)
         out = PBF_DIR / f"{city['key']}_{region.split('/')[-1]}.osm.pbf"
-        if out.exists() and out.stat().st_mtime > src.stat().st_mtime and not args.refresh:
-            print(f"  {out.name}: present, newer than {src.name}")
+        stamp = out.with_suffix('.bbox')   # the bbox the extract was cut for
+        want = json.dumps(city['bbox'], sort_keys=True)
+        if (out.exists() and out.stat().st_mtime > src.stat().st_mtime and not args.refresh
+                and stamp.exists() and stamp.read_text() == want):
+            print(f"  {out.name}: present, newer than {src.name}, same bbox")
         else:
             extract(src, city['bbox'], out)
+            stamp.write_text(want)
         outs.append(str(out))
     print(f"\nOSM_LOCAL_PBF={';'.join(outs)}")
 
