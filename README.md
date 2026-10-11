@@ -78,6 +78,13 @@ in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar 
 under-served.
 Thumbnails of every map: `png/archive/how_it_was_made/thumbs/*_thumb.png`.
 
+**San Francisco + Oakland/Berkeley (2026-10-11)**: 37.70-37.90 N, -122.52..-122.18 (UTM 10N), 511.org
+regional GTFS (22 operators; 5,853 stops with service, 449k departures on Wed 14.10), slope-aware
+walking (USGS 1/3" ~10 m; edge cost x1.070, avg isochrone 24.0 ha vs 27.7 in flat New York).
+Preview `png/previews/sanfrancisco_poster_150.png`; 33 min preparation + 20 min processing. Stop
+check: Oakland Airport BART and Treasure Island are JFK-like islands (covered via the island walk),
+nothing skipped. Open: legend over the open Bay instead of the bottom-right corner (needs free legend placement).
+
 **Zurich (2026-10-11)**: city + 400 m (LV95), national Swiss GTFS clipped (1,970 stops, 242k
 departures on Wed 14.10; Zurich's autumn holidays barely change the timetable: 19,980-20,264 trips
 on every Wednesday 7.10-4.11), slope-aware walking (swissALTI3D 2 m; edge cost x1.088 on average,
