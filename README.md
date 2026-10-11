@@ -78,6 +78,13 @@ in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar 
 under-served.
 Thumbnails of every map: `png/archive/how_it_was_made/thumbs/*_thumb.png`.
 
+**Larger New York (`newyork` key, 2026-10-11)**: 25.7 x 25.0 km, Manhattan to ~110th St, Brooklyn
+to Brighton Beach/Coney Island, the Rockaways, past JFK; 11,212 stops, 1.33 M departures on Wed
+14.10; preview `png/previews/newyork_poster_150.png` (run_city.py, 94 min incl. the sea fix).
+Open: 300 dpi final (would replace the 17 km final's file name), legend position (top-right or
+over Jamaica Bay), tunnel rendering (tracks in tunnels are drawn like surface tracks: 1,713 subway
++ 801 rail segments in New York; options dashed/hidden/faded), New Jersey handling for reruns.
+
 **Finals 2026-10-11 (both routing fixes, raster coverage)**:
 `png/how_many_rides_in_5_mins_newyork_2026_10_14_dark_bmy_bright_hq.png` (manhattan key, 16.6 x
 17.5 km frame, title NEW YORK; isochrones avg 27.9 ha, 8,613/8,659 stops) and
