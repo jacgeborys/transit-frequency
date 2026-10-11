@@ -133,15 +133,21 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
 
 ### Next steps / open ideas
 
+- **Slope-aware walking (2026-10-11)**: cities with `'hills': True` (Zurich, San Francisco) cost
+  each edge by Tobler's hiking function, symmetric (mean of up- and downhill time), elevation from
+  `fetch_dem.py` (`D:\QGIS\osm_basemap\dem\<city>.tif`: swissALTI3D 2 m, USGS 1/3" ~10 m) sampled
+  every 10 m; bridges/tunnels flat (02 keeps `structure`), stairs at least 25 % slope. To validate
+  on sketches (Filbert Steps, Lombard St, Polybahn) before the full runs.
 - **Stations inside "islands" (found 2026-10-11, JFK AirTrain)**: 03 reclassifies public path
   islands that reach the city only via private ways/closed gates as private (meant for stadiums,
   gated estates), and stops snap to the nearest *public* node. JFK's terminal interiors are such an
   island (316 private airport ways around them), so the AirTrain terminal stations snap ~400 m away
   (4-10 ha walks) or are skipped (T5, T7). A rule "islands with a stop inside stay public" broke
   subway stations: their mezzanines are often disconnected islands in OSM (no doors at all), and
-  Times Sq/Herald Sq/Jackson Hts fell from ~31 ha to 0. Planned fix (additive, nothing can shrink):
-  keep today's snapping and add the island interior's reach for stops within 30 m of an island
-  (Terminal 4 test: 4.4 -> 19.2 ha). Sketches: `png/archive/how_it_was_made/sketches/{sketch,diag}_newyork_*`. `diagnose_stops.py`
+  Times Sq/Herald Sq/Jackson Hts fell from ~31 ha to 0. **Fixed 2026-10-11 (03 tag g10, additive)**:
+  today's snapping stays, and a stop within 30 m of an island also walks inside it (Terminal 4
+  4.4 -> ~19 ha, Terminal 5 skipped -> covered; Times Sq unchanged at ~31 ha). New York rerun from 03
+  queued after the Zurich/San Francisco preparation. Sketches: `png/archive/how_it_was_made/sketches/{sketch,diag}_newyork_*`. `diagnose_stops.py`
   (run_city step `check`) flags such stops in every city: New York 2026-10-11 = SKIPPED 115 stops
   (1.0 % of departures), SNAP_FAR 131 (1.2 %), IN_GATED_ISLAND 118 (1.0 %).
 - **Coastline across a region border (found 2026-10-11, New York)**: the sea layer is built from
