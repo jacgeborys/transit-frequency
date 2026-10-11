@@ -142,8 +142,11 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
 - **Slope-aware walking (2026-10-11)**: cities with `'hills': True` (Zurich, San Francisco) cost
   each edge by Tobler's hiking function, symmetric (mean of up- and downhill time), elevation from
   `fetch_dem.py` (`D:\QGIS\osm_basemap\dem\<city>.tif`: swissALTI3D 2 m, USGS 1/3" ~10 m) sampled
-  every 10 m; bridges/tunnels flat (02 keeps `structure`), stairs at least 25 % slope. To validate
-  on sketches (Filbert Steps, Lombard St, Polybahn) before the full runs.
+  every 10 m; bridges/tunnels flat (02 keeps `structure`), stairs at least 25 % slope. Validated on
+  sketches (`--recompute --flat` vs default; `png/archive/how_it_was_made/sketches/compare_hills_*`):
+  Zurich edge cost x1.088 (Rigiblick/Kirche Fluntern lobes shorter along steep streets),
+  San Francisco x1.070 (Coit Tower walk area roughly halved; Hyde & Lombard loses its east-west
+  reach). Note: the crooked block of Lombard St is tagged private in OSM (its sidewalks are public).
 - **Stations inside "islands" (found 2026-10-11, JFK AirTrain)**: 03 reclassifies public path
   islands that reach the city only via private ways/closed gates as private (meant for stadiums,
   gated estates), and stops snap to the nearest *public* node. JFK's terminal interiors are such an
