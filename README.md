@@ -155,8 +155,9 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
   subway stations: their mezzanines are often disconnected islands in OSM (no doors at all), and
   Times Sq/Herald Sq/Jackson Hts fell from ~31 ha to 0. **Fixed 2026-10-11 (03 tag g10, additive)**:
   today's snapping stays, and a stop within 30 m of an island also walks inside it (Terminal 4
-  4.4 -> ~19 ha, Terminal 5 skipped -> covered; Times Sq unchanged at ~31 ha). New York rerun from 03
-  queued after the Zurich/San Francisco preparation. Sketches: `png/archive/how_it_was_made/sketches/{sketch,diag}_newyork_*`. `diagnose_stops.py`
+  4.4 -> 24 ha, Terminal 8 5.4 -> 20 ha, Terminals 5 and 7 skipped -> 12 / 10 ha; Times Sq unchanged).
+  New York rerun 2026-10-11 17:35: skipped stops 115 -> 16 (13,035 -> 2,438 departures), average
+  isochrone unchanged 27.7 ha; JFK close-up `png/archive/how_it_was_made/comparisons/newyork_jfk_airtrain_fixed.png`. Sketches: `png/archive/how_it_was_made/sketches/{sketch,diag}_newyork_*`. `diagnose_stops.py`
   (run_city step `check`) flags such stops in every city: New York 2026-10-11 = SKIPPED 115 stops
   (1.0 % of departures), SNAP_FAR 131 (1.2 %), IN_GATED_ISLAND 118 (1.0 %).
 - **Coastline across a region border (found 2026-10-11, New York)**: the sea layer is built from
