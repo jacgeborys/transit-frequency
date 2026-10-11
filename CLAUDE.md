@@ -45,6 +45,18 @@ README's "Adding a new city". Use it instead of hand-written .cmd chains.
 Previews go to png/previews/; diagnostic sketches, zooms and comparisons belong in
 png/archive/how_it_was_made/ (the user wants them for a "how it was made" post).
 
+## Check stops after every new map (diagnose_stops.py, 2026-10-11)
+
+run_city's `check` step writes `<data>/diagnostics/stops_access.csv` and logs a summary line.
+Before trusting a new city, look at the busiest flagged stops and sketch suspicious ones:
+`python script/diagnose_stops.py --city X <data> --stop "^Name$"` -> png/previews/diag_<city>_<name>.png
+(island paths cyan, private orange, dashed red line = where the walk really starts).
+Known patterns: **IN_GATED_ISLAND + SNAP_FAR** = a stop inside an area reachable only via private
+ways (JFK's terminals: AirTrain walks start 450-700 m away or are skipped); **IN_LOOSE_ISLAND** =
+disconnected mapping such as station mezzanines (harmless, the walk starts on the street; do NOT
+"fix" by keeping islands with stops public: that dropped Times Sq/Herald Sq to 0 ha);
+**SKIPPED SNAP_FAR** at the bbox edge or in another state (New Jersey PATH) = outside the network.
+
 ## Choosing a GTFS date
 
 - Pick a regular school-term weekday, usually a **Wednesday in October** (or March to May).

@@ -141,7 +141,9 @@ dark palettes for Warsaw `…_dark_<palette>.png`, style comparison sheets
   subway stations: their mezzanines are often disconnected islands in OSM (no doors at all), and
   Times Sq/Herald Sq/Jackson Hts fell from ~31 ha to 0. Planned fix (additive, nothing can shrink):
   keep today's snapping and add the island interior's reach for stops within 30 m of an island
-  (Terminal 4 test: 4.4 -> 19.2 ha). Sketches: `png/archive/how_it_was_made/sketches/sketch_newyork_jfk_*`.
+  (Terminal 4 test: 4.4 -> 19.2 ha). Sketches: `png/archive/how_it_was_made/sketches/{sketch,diag}_newyork_*`. `diagnose_stops.py`
+  (run_city step `check`) flags such stops in every city: New York 2026-10-11 = SKIPPED 115 stops
+  (1.0 % of departures), SNAP_FAR 131 (1.2 %), IN_GATED_ISLAND 118 (1.0 %).
 - **Coastline across a region border (found 2026-10-11, New York)**: the sea layer is built from
   `natural=coastline` in the city's extracts. With New York state only, the New Jersey shore is
   missing, so Jersey City/Hoboken were classed as sea. Patched by hand for `newyork` (water + sea

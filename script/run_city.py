@@ -5,7 +5,8 @@ basemap -> walking network -> isochrones -> coverage (raster) -> building values
     python run_city.py --city zurich --date 20261014 --detach      # usual call (hidden, survives the session)
     python run_city.py --city amsterdam --date 20261014 --from iso --final
 
-Steps (names for --from / --to): gtfs, counts, osm, basemap, network, iso, coverage, buildings,
+Steps (names for --from / --to): gtfs, counts, osm, basemap, network, iso, check (stop
+diagnostics, diagnose_stops.py), coverage, buildings,
 render, final (300 dpi, only with --final), cleanup (only with --cleanup-osm).
 A step is skipped when its output exists and is newer than its inputs (make-like), so a rerun
 after an interruption continues where it stopped; --from STEP forces that step; later steps rerun when their inputs became newer (so new GTFS
@@ -34,7 +35,7 @@ PROJECT = HERE.parent
 BASEMAP_FETCHER = Path(r'D:\QGIS\osm_basemap\fetch_osm_basemap.py')
 PBF_DIR = Path(r'D:\QGIS\osm_basemap\pbf')
 LOG = PROJECT / 'png' / 'log_buildings_final.txt'
-STEPS = ['gtfs', 'counts', 'osm', 'basemap', 'network', 'iso', 'coverage', 'buildings',
+STEPS = ['gtfs', 'counts', 'osm', 'basemap', 'network', 'iso', 'check', 'coverage', 'buildings',
          'render', 'final', 'cleanup']
 PY = sys.executable
 
@@ -171,6 +172,13 @@ def main():
         if todo('iso', iso, [counts, net, osm_dir / 'buildings.gpkg', osm_dir / 'barriers.gpkg']):
             dt = run(['03_generate_isochrones_local.py', '--city', key, '--gates', data], logs / '03.txt')
             milestone(city, f"isochrones done ({dt / 60:.1f} min)")
+        diag = data / 'diagnostics' / 'stops_access.csv'
+        if todo('check', [diag], iso):
+            dt = run(['diagnose_stops.py', '--city', key, data], logs / 'check.txt')
+            summary = [l.strip() for l in (logs / 'check.txt').read_text(encoding='utf-8').splitlines()
+                       if l.strip().split(' ')[0] in ('SKIPPED', 'SNAP_FAR', 'IN_GATED_ISLAND')]
+            milestone(city, f"stop check done ({dt / 60:.1f} min): " + ('; '.join(
+                ' '.join(l.split()[:4]) for l in summary) or 'no flags') + f" -> {diag}")
         cov = [data / 'coverage_map_gates.gpkg', data / 'coverage_map_gates_residents.gpkg']
         if todo('coverage', cov, iso):
             dt = 0
