@@ -517,6 +517,58 @@ def download_krakow(city: dict, combined_dir: Path):
     logger.info('Cleaned up raw downloads')
 
 
+def _secs(t):
+    h, m, sec = (int(v) for v in str(t).split(':'))
+    return h * 3600 + m * 60 + sec
+
+
+def _hms(x):
+    x = int(x)
+    return f"{x // 3600:02d}:{x % 3600 // 60:02d}:{x % 60:02d}"
+
+
+def expand_frequencies(d: Path):
+    """Turn frequencies.txt (a train every N s between X and Y) into explicit trips.
+
+    The merge reads only stop_times.txt, so a frequency-based feed (e.g. AirTrain JFK) would
+    count each template trip once. Every departure becomes its own trip '<trip>_f<k>', with the
+    template's stop_times shifted; frequencies.txt is removed. Small feeds only (in memory).
+    """
+    f = d / 'frequencies.txt'
+    if not f.exists():
+        return
+    freq = pd.read_csv(f, dtype=str, encoding='utf-8-sig')
+    trips = pd.read_csv(d / 'trips.txt', dtype=str, encoding='utf-8-sig')
+    st = pd.read_csv(d / 'stop_times.txt', dtype=str, encoding='utf-8-sig')
+    keep_t = trips[~trips['trip_id'].isin(freq['trip_id'])]
+    keep_st = st[~st['trip_id'].isin(freq['trip_id'])]
+    new_t, new_st = [keep_t], [keep_st]
+    for trip_id, rows in freq.groupby('trip_id'):
+        tmpl = st[st['trip_id'] == trip_id].copy()
+        if tmpl.empty:
+            continue
+        tmpl['_seq'] = tmpl['stop_sequence'].astype(int)
+        tmpl = tmpl.sort_values('_seq')
+        t0 = _secs(tmpl['departure_time'].iloc[0])
+        arr = tmpl['arrival_time'].map(_secs) - t0
+        dep = tmpl['departure_time'].map(_secs) - t0
+        base = trips[trips['trip_id'] == trip_id].iloc[0]
+        k = 0
+        for _, r in rows.iterrows():
+            for start in range(_secs(r['start_time']), _secs(r['end_time']), int(r['headway_secs'])):
+                tid = f"{trip_id}_f{k}"
+                k += 1
+                new_t.append(base.to_frame().T.assign(trip_id=tid))
+                new_st.append(tmpl.drop(columns='_seq').assign(
+                    trip_id=tid, arrival_time=(arr + start).map(_hms), departure_time=(dep + start).map(_hms)))
+    trips = pd.concat(new_t, ignore_index=True)
+    st = pd.concat(new_st, ignore_index=True)
+    trips.to_csv(d / 'trips.txt', index=False)
+    st.to_csv(d / 'stop_times.txt', index=False)
+    f.unlink()
+    logger.info(f'  {d.name}: frequencies.txt expanded into {len(trips):,} trips')
+
+
 def read_filtered(path: Path, col: str, keep: set, chunksize=2_000_000, **kw) -> pd.DataFrame:
     """Read a GTFS table in chunks, keeping only rows whose `col` is in `keep`."""
     parts = [ch[ch[col].isin(keep)] for ch in
@@ -551,6 +603,7 @@ def download_prefixed(city: dict, combined_dir: Path):
             cal['end_date'] = cal['end_date'].where(cal['end_date'] > '20271231', '20271231')
             cal.to_csv(d / 'calendar.txt', index=False)
             logger.warning(f'{feed}: calendar.txt end dates stretched to 2027-12-31 (stale feed)')
+        expand_frequencies(d)
         ensure_calendar_dates(d)
         idp = groups.get(feed, feed) + '_'   # stop_id / route_id prefix (shared within a group)
         fp = feed + '_'                       # trip_id / service_id prefix (per feed)

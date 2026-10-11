@@ -130,6 +130,8 @@ def main():
     t_all = time.time()
     try:
         if todo('gtfs', [data / 'stops.txt']):
+            if first == STEPS.index('gtfs'):
+                set_aside(data)   # 00 refuses an existing day folder (forced: download again)
             dt = run(['00_download_gtfs.py', '--city', key], city['data_dir'] / f"log_00_{data.name}.txt")
             milestone(city, f"gtfs done ({dt / 60:.1f} min)")
         counts = data / 'stops_trip_count.csv'

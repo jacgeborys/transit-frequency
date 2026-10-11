@@ -112,6 +112,12 @@ def floor_fill_lightness(renderer, layer_alpha, bg_rgb, floor, step=0.8):
             props['color'] = f"{rgb},{int(round(cls_alpha * 255))}"
 
 
+def _is_tunnel(gdf):
+    """Railway features below ground: any tunnel tag except 'no' (yes, building_passage, ...)."""
+    t = gdf['tunnel'].astype('object')
+    return t.notna() & ~t.isin(['no', 'false', '0', ''])
+
+
 def big_building_renderer(rgb=BIG_BUILDING_RGB):
     if rgb.count(',') == 2:
         rgb += ',255'
@@ -1227,10 +1233,26 @@ def main():
     print(f"  background {','.join(str(round(c * 255)) for c in bg[:3])} alpha {bg[3]:.2f}")
     canvas = np.empty((map_px[1], map_px[0], 3), dtype=np.float32)
     canvas[:] = np.array(bg[:3]) * bg[3] + (1 - bg[3])  # over white page
+    # Railway tunnels (tunnel=yes/building_passage/...) are drawn below the coverage layer, so
+    # buildings (Grand Central), coverage fills and water cover them; surface tracks stay on top
+    rail_layer = next((l for l in stack if l['path'].stem == 'railways'), None)
     for layer in reversed(stack):
         mode = BLEND_NAMES.get(layer['blend'], 'normal')
+        if rail_layer is not None and layer['path'] == coverage:
+            rails = load_layer_data(rail_layer, extent, map_crs)
+            if 'tunnel' in rails.columns:
+                tun = rails[_is_tunnel(rails)]
+                print(f"  {'railways (tunnels)':<20} below coverage {len(tun):>8,} features", flush=True)
+                if len(tun):
+                    t_rgba = render_layer_rgba(tun, rail_layer['renderer'], extent, map_px, dpi)
+                    t_rgba[..., 3] *= rail_layer['opacity']
+                    blend(canvas, t_rgba, BLEND_NAMES.get(rail_layer['blend'], 'normal'))
+                    del t_rgba
+            del rails
         print(f"  {layer['name']:<20} opacity={layer['opacity']:<5g} blend={mode:<7}", end=' ', flush=True)
         gdf = load_layer_data(layer, extent, map_crs)
+        if layer is rail_layer and 'tunnel' in gdf.columns:
+            gdf = gdf[~_is_tunnel(gdf)]   # tunnels were drawn below the coverage
         if underground and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:
             gdf = gdf[~gdf['osm_id'].astype('int64').isin(underground)]
         if bld is not None and layer['path'].name == 'buildings.gpkg' and 'osm_id' in gdf.columns:

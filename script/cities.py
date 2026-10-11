@@ -232,11 +232,14 @@ CITIES = {
             'mnr': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfsmnr.zip',
             'path': 'http://data.trilliumtransit.com/gtfs/path-nj-us/path-nj-us.zip',
             'ferry': 'https://nycferry.connexionz.net/rtt/public/resource/gtfs.zip',
+            # Port Authority, frequency-based (expanded by 00); last published 2021, calendar
+            # stretched like PATH's
+            'airtrain': 'https://s3.amazonaws.com/datatools-511ny/public/Airtrain_JFK.zip',
         },
         'gtfs_merge': 'prefixed',
         # MTA bus feeds share stop and route ids: one prefix, so shared stops/routes merge
         'gtfs_groups': {f: 'bus' for f in ('bus_m', 'bus_bx', 'bus_b', 'bus_q', 'bus_co')},
-        'gtfs_extend_calendar': {'path'},  # PATH feed expired 2026-06; no newer one published
+        'gtfs_extend_calendar': {'path', 'airtrain'},  # PATH expired 2026-06, AirTrain 2021  # PATH feed expired 2026-06; no newer one published
         'exact_service_match': True,
         'vehicle_classify': _route_type_only,
         'has_frequencies': False,
@@ -310,6 +313,7 @@ CITIES['newyork'] = {
              'bus_si': 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_si.zip'},
     'gtfs_groups': {f: 'bus' for f in ('bus_m', 'bus_bx', 'bus_b', 'bus_q', 'bus_co', 'bus_si')},
     'network_tiles': 12,
+    'legend_corner': 'bottom-right',  # over Jamaica Bay (the frame's empty water)
 }
 
 
