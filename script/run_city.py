@@ -8,7 +8,8 @@ basemap -> walking network -> isochrones -> coverage (raster) -> building values
 Steps (names for --from / --to): gtfs, counts, osm, basemap, network, iso, coverage, buildings,
 render, final (300 dpi, only with --final), cleanup (only with --cleanup-osm).
 A step is skipped when its output exists and is newer than its inputs (make-like), so a rerun
-after an interruption continues where it stopped; --from STEP forces that step and all later ones.
+after an interruption continues where it stopped; --from STEP forces that step; later steps rerun when their inputs became newer (so new GTFS
+redoes counts..render but not the OSM steps).
 
 Needs in cities.py: bbox, crs_metric, gtfs (+ gtfs_merge), osm_pbf (Geofabrik regions),
 template/render_frame for the poster; header texts in render_poster.py (POSTER).
@@ -94,7 +95,7 @@ def main():
     add_city_argument(ap)
     ap.add_argument('--date', required=True, help='Analysis day YYYYMMDD (a school-term weekday)')
     ap.add_argument('--data', help='GTFS data folder (default: today\'s, downloaded by step gtfs)')
-    ap.add_argument('--from', dest='from_step', choices=STEPS, help='Force this step and all later ones')
+    ap.add_argument('--from', dest='from_step', choices=STEPS, help='Force this step (later ones follow make-like)')
     ap.add_argument('--to', dest='to_step', choices=STEPS, default='cleanup', help='Stop after this step')
     ap.add_argument('--final', action='store_true', help='Also render the 300 dpi poster into png/')
     ap.add_argument('--vector', action='store_true', help='Coverage with the vector 04 (slow; for checks)')
@@ -122,8 +123,10 @@ def main():
         i = STEPS.index(step)
         if i > last:
             return False
-        if first is not None:
-            return i >= first
+        if first is not None and i < first:
+            return False
+        if first is not None and i == first:
+            return True   # forced; later steps follow only if their inputs became newer
         return not (outputs and newer(outputs, inputs))
 
     milestone(city, f"run_city start (date {date}, data {data.name})")

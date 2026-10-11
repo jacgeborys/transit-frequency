@@ -35,13 +35,25 @@ WKD_PREFIX = 'wkd_'
 # Download helpers
 # ---------------------------------------------------------------------------
 
+SECRETS = Path(__file__).resolve().parent.parent / '.secrets'   # gitignored
+
+
+def resolve_secrets(url: str) -> str:
+    """Replace {secret:NAME} with .secrets/NAME.txt (API keys stay out of cities.py and git)."""
+    import re
+    return re.sub(r'\{secret:(\w+)\}',
+                  lambda m: (SECRETS / f'{m.group(1)}.txt').read_text(encoding='utf-8').strip(), url)
+
+
 def download_and_extract(url: str, name: str, output_dir: Path) -> Path:
     """Download a GTFS zip, extract, return path to extracted dir."""
     output_dir.mkdir(parents=True, exist_ok=True)
     zip_path = output_dir / f'{name}.zip'
 
-    logger.info(f'Downloading {name} from {url}')
-    response = requests.get(url, stream=True, timeout=60)
+    logger.info(f'Downloading {name} from {url}')   # with the {secret:...} placeholder, not the key
+    response = requests.get(resolve_secrets(url), stream=True, timeout=60,
+                            headers={'User-Agent': 'transit-frequency-map/1.0 '
+                                                   '(+https://github.com/jacgeborys/transit-frequency)'})
     response.raise_for_status()
 
     total = int(response.headers.get('content-length', 0))
