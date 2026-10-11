@@ -42,6 +42,8 @@ DE = {'headline': 'Wie viele Abfahrten erreichst du in 5 Minuten zu Fuß?',
       'subline': 'Werktag · Mittwoch, {date}', 'legend_title': 'Abfahrten/Tag'}
 EN = {'headline': 'How many departures within a 5-minute walk?',
       'subline': 'weekday · Wednesday {date}', 'legend_title': 'Departures/day'}
+DE_CH = {'headline': 'Wie viele Abfahrten erreichst du in 5 Minuten zu Fuss?',  # Swiss: no ß
+         'subline': 'Werktag · Mittwoch, {date}', 'legend_title': 'Abfahrten/Tag'}
 NL = {'headline': 'Hoeveel vertrekken binnen 5 minuten lopen?',
       'subline': 'werkdag · woensdag {date}', 'legend_title': 'Vertrekken/dag'}
 
@@ -53,6 +55,8 @@ POSTER = {
     'lublin': {'city': 'LUBLIN', **PL},
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},
+    'zurich': {'city': 'ZÜRICH', **DE_CH},
+    'sanfrancisco': {'city': 'SAN FRANCISCO', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'manhattan': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'newyork': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }

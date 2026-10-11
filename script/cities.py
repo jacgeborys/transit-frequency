@@ -300,6 +300,46 @@ CITIES = {
 # Public API
 # ---------------------------------------------------------------------------
 
+CITIES['zurich'] = {
+    'name': 'Zürich',
+    # City of Zürich (47.320-47.435 N, 8.448-8.625 E) + ~400 m
+    'bbox': {'south': 47.316, 'west': 8.442, 'north': 47.439, 'east': 8.631},
+    'crs_metric': 'EPSG:2056',  # Swiss LV95 (metres)
+    'gtfs': {
+        # National Swiss feed (opentransportdata.swiss, all operators), clipped to the bbox
+        'ch': 'https://data.opentransportdata.swiss/dataset/timetable-2026-gtfs2020/permalink',
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,
+    'has_frequencies': False,
+    'osm_pbf': ['europe/switzerland'],
+    'network_tiles': 6,
+    'template': 'krakow',
+    # EPSG:2056 m: bbox minus 400 m (13.3 x 12.7 km)
+    'render_frame': (2676260, 1241650, 2689540, 1254330),
+}
+
+CITIES['sanfrancisco'] = {
+    'name': 'San Francisco',
+    # San Francisco + Oakland/Berkeley across the Bay (Daly City border .. north Berkeley)
+    'bbox': {'south': 37.700, 'west': -122.520, 'north': 37.900, 'east': -122.180},
+    'crs_metric': 'EPSG:32610',  # UTM 10N (metres)
+    'gtfs': {
+        # 511.org regional feed (all Bay Area operators); key in .secrets/511_api_key.txt
+        'bay': 'https://api.511.org/transit/datafeeds?api_key={secret:511_api_key}&operator_id=RG',
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,
+    'has_frequencies': False,
+    'osm_pbf': ['north-america/us/california/norcal'],
+    'network_tiles': 8,
+    'template': 'krakow',
+    # m in UTM 10N: bbox minus 400 m (29.0 x 21.2 km)
+    'render_frame': (542710, 4173250, 571690, 4194430),
+}
+
 # New York, larger (2026-10-11): the 'manhattan' frame extended south to Brighton Beach / Coney
 # Island (+ western Rockaways), east past JFK, north +1 km (no Bronx). 25.7 x 25.0 km.
 # Same feeds as 'manhattan' + Staten Island buses (the frame's corner shows St. George).
