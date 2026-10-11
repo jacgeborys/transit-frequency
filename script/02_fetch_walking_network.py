@@ -121,6 +121,12 @@ def build_graph_from_jsons(jsons):
             length = R * 2 * atan2(sqrt(a), sqrt(1-a))
 
             edge_data = {'length': length, 'highway': highway, 'osmid': way['id']}
+            # For slope-aware walking (03 with a DEM): bridges and tunnels are not on the
+            # ground the DEM describes, so their elevation is interpolated between ends
+            if tags.get('bridge', 'no') not in ('no', '0', 'false'):
+                edge_data['structure'] = 'bridge'
+            elif tags.get('tunnel', 'no') not in ('no', '0', 'false') or tags.get('covered') == 'yes':
+                edge_data['structure'] = 'tunnel'
             # Walking is bidirectional, also on one-way streets and one-way cycle paths
             # (oneway=* applies to vehicles; until 2026-10-11 it made edges one-directional)
             G.add_edge(u, v, **edge_data)
