@@ -3,3 +3,4 @@ network/
 basemap/
 .idea/
 cache/
+.secrets/
