@@ -78,6 +78,12 @@ in `png/log_buildings_final.txt`). Caveats: PATH feed expired 2026-06 (calendar 
 under-served.
 Thumbnails of every map: `png/archive/how_it_was_made/thumbs/*_thumb.png`.
 
+**Zurich (2026-10-11)**: city + 400 m (LV95), national Swiss GTFS clipped (1,970 stops, 242k
+departures on Wed 14.10; Zurich's autumn holidays barely change the timetable: 19,980-20,264 trips
+on every Wednesday 7.10-4.11), slope-aware walking (swissALTI3D 2 m; edge cost x1.088 on average,
+avg isochrone 25.6 ha), Swiss German header ("zu Fuss"). Preview `png/previews/zurich_poster_150.png`;
+whole city 23 min preparation + 8 min processing. Stop check clean (no skipped/far stops).
+
 **Larger New York (`newyork` key, 2026-10-11)**: 25.7 x 25.0 km, Manhattan to ~110th St, Brooklyn
 to Brighton Beach/Coney Island, the Rockaways, past JFK; 11,212 stops, 1.33 M departures on Wed
 14.10; preview `png/previews/newyork_poster_150.png` (run_city.py, 94 min incl. the sea fix).
