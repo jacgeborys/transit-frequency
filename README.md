@@ -261,6 +261,8 @@ interrupted run resumes.
 
 ## Directory structure
 
+`3d/` = subproject (2026-10-12): Blender renders of buildings coloured by frequency; plan and
+status in `3d/README.md`.
 `png/` holds only the current 300 dpi finals (+ the milestone log `log_buildings_final.txt`);
 `png/previews/` = working previews of the city in progress (empty between projects);
 `png/archive/how_it_was_made/{sketches,comparisons,style,previews,thumbs,logs}` = diagnostic

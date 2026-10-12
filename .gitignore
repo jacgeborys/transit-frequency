@@ -4,3 +4,6 @@ basemap/
 .idea/
 cache/
 .secrets/
+
+3d/scenes/
+3d/renders/
