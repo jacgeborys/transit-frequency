@@ -374,7 +374,6 @@ CITIES['tricity'] = {
     # Rumia mostly outside)
     'render_frame': (-9800, -13600, 6200, 16600),
     'legend_corner': 'top-right',  # over the Gulf of Gdańsk east of Gdynia/Sopot
-    'north_arrow': True,  # frame rotated 22 deg
     'gtfs': {
         'gdansk': 'https://ckan.multimediagdansk.pl/dataset/c24aa637-3619-4dc2-a171-a23eec8f2172/resource/30e783e4-2bec-4a7d-bb22-ee3e3b26ca96/download/gtfsgoogle.zip',
         'gdynia': 'https://api.zdiz.gdynia.pl/pt/gtfs.zip',           # ZKM Gdynia (+ trolleybuses)

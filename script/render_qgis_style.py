@@ -17,6 +17,7 @@ Usage:
     For a 1:1 QGIS export use export_layout.py instead (needs QGIS installed).
 """
 import argparse
+import math
 import os
 import pickle
 import re
@@ -45,6 +46,7 @@ MM_TO_PT = 72 / 25.4
 RESIDENTS_ALPHA = 0.3          # residents-only zones: same class colour, this much opacity
 RESIDENTS_LABEL = 'tylko dla mieszkańców'
 LEGEND_PAGE_MARGIN_MM = 5.15   # same inset as the map frames in the layouts
+LEGEND_REF_PAGE_MM = 420.4     # sqrt(page area) of the Krakow layout (490 x 360 mm): legend scale 1
 GREEN_LAYERS = {'parks', 'forests', 'meadow', 'grass', 'leisure', 'leisure_relations',
                 'cemeteries', 'allotments'}
 
@@ -314,7 +316,7 @@ def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm, legend_rect=None
     mx, my, mw, mh = map_mm
     target_km = mw * 0.16 * metres_per_mm / 1000
     km = min((1, 2, 3, 5, 10, 20, 50), key=lambda v: abs(v - target_km))
-    seg_n = 5 if km in (5, 10, 50) else 4 if km in (2, 20) else 3 if km == 3 else 2
+    seg_n = km if km <= 10 else km // 5          # every box 1 km (5 km boxes beyond 10 km)
     length = km * 1000 / metres_per_mm
     margin = page_mm[0] * 0.022
     h = page_mm[0] * 0.005
@@ -919,13 +921,17 @@ def legend_style(item, name):
 
 
 def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0,
-                shift_y_mm=0.0, corner=None, map_mm=None):
-    """Single-column legend: layer title + one patch per renderer class."""
-    box = float(item.get('boxSpace', 2))
-    sw, sh = float(item.get('symbolWidth', 7)), float(item.get('symbolHeight', 4))
+                shift_y_mm=0.0, corner=None, map_mm=None, scale=1.0):
+    """Single-column legend: layer title + one patch per renderer class.
+    scale: every size (fonts, patches, spacing) multiplied, so the legend grows with the poster."""
+    box = float(item.get('boxSpace', 2)) * scale
+    sw, sh = float(item.get('symbolWidth', 7)) * scale, float(item.get('symbolHeight', 4)) * scale
     title_st = legend_style(item, 'subgroup')
     sym_st = legend_style(item, 'symbol')
     lab_st = legend_style(item, 'symbolLabel')
+    for st in (title_st, sym_st, lab_st):
+        for k in ('size', 'marginTop', 'marginLeft'):
+            st[k] *= scale
     r = legend_layer['renderer']
     entries = [(lab, r['symbols'][s]) for lo, hi, s, rend, lab in r['ranges']] \
         if r['type'] == 'graduatedSymbol' else \
@@ -954,15 +960,14 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     ay_ += shift_y_mm
     x = ax_ - width * (ref % 3) / 2
     y = ay_ - height * (ref // 3) / 2
-    if corner and map_mm:  # city override: pin into a corner of the map, e.g. 'top-right'
+    if corner and map_mm:  # city override: flush into a corner of the map, sharing its frame
         mx_, my_, mw_, mh_ = map_mm
-        m = LEGEND_PAGE_MARGIN_MM
-        x = mx_ + m if 'left' in corner else mx_ + mw_ - m - width
-        y = my_ + m if 'top' in corner else my_ + mh_ - m - height
+        x = mx_ if 'left' in corner else mx_ + mw_ - width
+        y = my_ if 'top' in corner else my_ + mh_ - height
     # A longer label (e.g. the residents row) must not push the legend off the page
     x = max(LEGEND_PAGE_MARGIN_MM, min(x, page_mm[0] - LEGEND_PAGE_MARGIN_MM - width))
 
-    frame_w = parse_mm(item.get('outlineWidthM', '0.3,mm'))[0] * MM_TO_PT
+    frame_w = parse_mm(item.get('outlineWidthM', '0.3,mm'))[0] * MM_TO_PT * scale
     fig.add_artist(Rectangle(to_fig(x, y + height), width / page_mm[0], height / page_mm[1],
                              transform=fig.transFigure, facecolor=PAGE_FACE, edgecolor=INK,
                              linewidth=frame_w, zorder=10))
@@ -1041,6 +1046,10 @@ def main():
                         help="Forests only (after --green-rgb), e.g. a touch darker than the other greens")
     parser.add_argument('--palette-extend', default=None,
                         help="Extra colours past the palette top, e.g. '#fff38a,#fffbd6'")
+    parser.add_argument('--north-arrow', action='store_true',
+                        help='North arrow (to true north) above the scale bar')
+    parser.add_argument('--legend-scale-auto', action='store_true',
+                        help='Scale the legend with the page (sqrt of page area vs the Krakow layout)')
     parser.add_argument('--min-lightness-step', type=float, default=0.0,
                         help='Raise the --min-lightness floor by this many L* per class, so the '
                              'floored low classes still get lighter step by step')
@@ -1147,6 +1156,8 @@ def main():
             lx, ly = parse_mm(legend_item.get('position'))
             legend_shift = dw if lx > old_w / 2 else 0.0
             legend_dy = dh if ly > old_page_h / 2 else 0.0
+            # Template cities: legend flush into the template's corner (shares the map frame)
+            template_corner = ('bottom' if ly > old_page_h / 2 else 'top') + '-' +                               ('right' if lx > old_w / 2 else 'left')
         print(f"  template frame: {(extent[2]-extent[0])/1000:.1f} x {(extent[3]-extent[1])/1000:.1f} km, "
               f"page {page_mm[0]:.0f} x {page_mm[1]:.0f} mm")
     if args.extend_left_m or args.extend_right_m:
@@ -1470,10 +1481,17 @@ def main():
         leg_layer['legend_title'] = args.legend_title or leg_node.get('name')
         apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness,
                           args.min_lightness_step)
+        if args.buildings:  # swatches = the opaque building colours actually drawn on the map
+            leg_layer['renderer'] = building_renderer(leg_layer['renderer'], args.building_shade,
+                                                      args.building_saturation)
+            leg_layer['opacity'] = 1.0
+        # Grow/shrink with the poster like the header: sqrt(page area) vs the Krakow layout's page
+        leg_scale = min(1.8, max(0.7, math.sqrt(page_mm[0] * page_mm[1]) / LEGEND_REF_PAGE_MM))             if args.legend_scale_auto else 1.0
         legend_rect = draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
-                    shift_y_mm=legend_dy, corner=city.get('legend_corner'),
-                    map_mm=(mx, my, mw, mh))
+                    shift_y_mm=legend_dy,
+                    corner=city.get('legend_corner') or locals().get('template_corner'),
+                    map_mm=(mx, my, mw, mh), scale=leg_scale)
 
     legend_rect = locals().get('legend_rect')
     if args.headline_city:
@@ -1482,8 +1500,7 @@ def main():
     if args.scale_bar:
         bar = draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw,
                              legend_rect)
-        if city.get('north_arrow'):  # rotated maps: needle above the scale bar, to true north
-            import math
+        if args.north_arrow or city.get('north_arrow'):  # needle above the scale bar, to true north
             cx, cy = (extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2
             to_ll = Transformer.from_crs(map_crs, 'EPSG:4326', always_xy=True)
             lon, lat = to_ll.transform(cx, cy)
