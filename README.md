@@ -29,6 +29,7 @@ sketches, comparisons and old variants are in `png/archive/`, see "Directory str
 
 | City | Final | Day | Data folder | Routing fixes |
 |---|---|---|---|---|
+| Tricity | `how_many_rides_in_5_mins_tricity_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/tricity/2026_10_12` | yes |
 | New York | `how_many_rides_in_5_mins_newyork_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/newyork/2026_10_11` | yes (+ JFK island walk) |
 | San Francisco | `how_many_rides_in_5_mins_sanfrancisco_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/sanfrancisco/2026_10_11` | yes, + hills |
 | Zurich | `how_many_rides_in_5_mins_zurich_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/zurich/2026_10_11` | yes, + hills |
@@ -54,13 +55,14 @@ Key numbers of the new maps (Wed 14.10.2026):
   Leandro Bay (the open Bay would be nicer: needs free legend placement).
 - **Zurich**: 1,970 stops, 243k departures (autumn holidays barely change the timetable);
   isochrones avg 25.6 ha (hills: edge cost x1.088); "zu Fuss" (Swiss spelling).
-- **Tricity** (2026-10-12, preview only: `png/previews/tricity_poster_150.png`, data
-  `_data/tricity/2026_10_12`): Gdańsk + Sopot + Gdynia, frame rotated 22 deg (oblique Mercator
+- **Tricity** (2026-10-12, 300 dpi final in `png/`, data `_data/tricity/2026_10_12`): Gdańsk + Sopot + Gdynia, frame rotated 22 deg (oblique Mercator
   gamma 112) so the coast runs up the page; Orunia .. Babie Doły/Cisowa, airport .. Stogi; legend
   over the Gulf. 2,534 stops, 249k departures (196k bus incl. Gdynia trolleybuses, 46k tram, 7k
   train); isochrones median 22.7 ha, 0 stops skipped. ZKM Gdynia GTFS:
   `https://api.zdiz.gdynia.pl/pt/gtfs.zip`. ZTM Gdańsk's feed only covers ~2 weeks ahead
-  (to 24.10 here), so pick a date close to the download. Whole run 23 min. No 300 dpi final yet.
+  (to 24.10 here), so pick a date close to the download. Whole run 23 min. North arrow (`'north_arrow': True` in cities.py; minimal split needle above
+  the scale bar, rotated to true north, +22 deg). Open: mid classes (170-450, magenta) nearly as
+  bright as the top, so evenly served areas look cluttered; a dimmer low/mid ramp is being considered.
 - **Amsterdam**: city core, 1,587 stops, 183k departures; avg 20.8 ha; Schiphol terminal
   platforms skipped (an older run, before the island walk).
 
