@@ -100,6 +100,14 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   `zoliborz` (from Żoliborz looking SE, lens 28 mm: 40 felt narrow). `render.py --lens` overrides the lens. `build_blend.py --view <name>` starts the .blend with that camera.
 - `build_blend.py` also adds a 40 km ground plane and a distance haze in the sky colour on every
   material (Camera Data distance, `--haze-start 2500 --haze-scale 5000`), so a wide view has no edge.
+- **Looks** (`build_blend.py --look day|night`, table `LOOKS`): `day` -> `scene.blend`; `night` ->
+  `scene_night.blend`: moonlight (sun 0.25, bluish), near-black sky, buildings glow by class (strength
+  1.6 x (0.08 + 0.92 k^1.6)), walls at half the roof glow, streets 0.12 and the Vistula 0.35 faint glow
+  (else the river vanishes), compositor **Bloom** (Blender 5: `scene.compositing_node_group`, Glare node
+  settings are input sockets). Every build adds the empty `focus_pkin` (0, 0, 90 m) as the focus target.
+- **Tilt-shift**: `render.py --fstop F` (or `"fstop"` in the view json) = depth of field on `focus_pkin`.
+  City scale needs absurd f-numbers: from Żoliborz (6.4 km to PKIN) 0.0025+ is invisible, **0.001 = mild**
+  (user's choice, stored in `views/zoliborz.json`), 0.0005 = strong miniature.
 - Sky: gradient from a dark zenith to a slightly lighter navy horizon (= haze colour); Eevee raytracing on.
 - `render.py`: **Cycles on CUDA by default** (1600x1000 ~25 s, 3200x2000 x 128 samples ~2 min; Eevee is
   no faster on this GPU and lacks the soft occlusion). Uses the .blend's camera unless `--view`.
@@ -122,5 +130,9 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   road lines instead of the earlier grey sheets; finals re-rendered.
 - 2026-10-12: `warsaw_wide` extended north/east for the wider Żoliborz view: `--bounds=-7000,-6500,7000,9000`
   (14 x 15.5 km, 94k building polygons, 1.85M faces, json 37 MB, export 3 min). Lens comparison in
-  `3d/renders/drafts/06_zoliborz_lens{32,28}.png`. Next: try
-  a night/glow look, height = frequency, labels/legend overlay, New York.
+  `3d/renders/drafts/06_zoliborz_lens{32,28}.png`.
+- 2026-10-12: **night look + tilt-shift** (user liked both ideas). Finals `3d/renders/warsaw_night_{zoliborz,
+  center,mokotow}.png` (Żoliborz with f/0.001 on PKIN; others without DOF). Drafts `07_night_*`,
+  `08_night_tiltshift_f*` in `3d/renders/drafts/`. Next: try
+  tilt-shift on the other views, fly-over or height = frequency animation, glowing transit lines,
+  labels/legend overlay, New York.

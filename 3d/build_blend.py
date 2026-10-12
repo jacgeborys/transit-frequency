@@ -26,8 +26,18 @@ GROUND_Z = {'base': 0.0, 'green': 0.05, 'forest': 0.06, 'water': 0.08, 'roads': 
 GROUND_COLOUR = {'base': 'background', 'green': 'green', 'forest': 'forest', 'water': 'water',
                  'roads': 'roads', 'railways': 'railways'}
 BASE_RGB = (12, 12, 15)  # ground plane: a touch above the poster's pure black so it reads in 3D
-SKY = (0.004, 0.005, 0.009)       # linear; zenith colour of the sky
-HORIZON = (0.016, 0.019, 0.032)   # linear; sky at the horizon = haze colour, so far ground melts into it
+# Looks: sky/horizon (linear; horizon = haze colour, so far ground melts into the sky), sun, building
+# glow (strength = glow * (floor + (1 - floor) * class_fraction ** power), walls * wall_glow vs roofs),
+# faint street and river glow, compositor bloom (0 = off)
+LOOKS = {
+    'day': dict(sky=(0.004, 0.005, 0.009), horizon=(0.016, 0.019, 0.032), sun_energy=3.0,
+                sun_colour=(1.0, 0.92, 0.82), glow=0.3, glow_floor=0.05, glow_power=2.0, wall_glow=1.0,
+                road_glow=0.0, water_glow=0.0, bloom=0.0),
+    'night': dict(sky=(0.0006, 0.0008, 0.0016), horizon=(0.004, 0.005, 0.010), sun_energy=0.25,
+                  sun_colour=(0.65, 0.75, 1.0), glow=1.6, glow_floor=0.08, glow_power=1.6, wall_glow=0.5,
+                  road_glow=0.12, water_glow=0.35, bloom=0.6),
+}
+FOCUS_PKIN = (0.0, 0.0, 90.0)  # tilt-shift target: Palace of Culture (scene origin), ~90 m up the tower
 
 
 def srgb_to_linear(c):
@@ -88,17 +98,21 @@ def make_mesh(name, verts, faces):
     return ob
 
 
-def flat_material(name, rgb, roughness=0.9):
+def flat_material(name, rgb, roughness=0.9, glow=0.0):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     p = m.node_tree.nodes['Principled BSDF']
     p.inputs['Base Color'].default_value = (*lin(rgb), 1)
     p.inputs['Roughness'].default_value = roughness
+    if glow:
+        p.inputs['Emission Color'].default_value = (*lin(rgb), 1)
+        p.inputs['Emission Strength'].default_value = glow
     return m
 
 
-def building_material(glow_scale):
-    """Base colour + emission from the per-face attributes 'col' and 'glow'."""
+def building_material(glow_scale, wall_glow=1.0):
+    """Base colour + emission from the per-face attributes 'col' and 'glow'; walls glow
+    wall_glow times as much as roofs (|normal z| blends between them)."""
     m = bpy.data.materials.new('buildings')
     m.use_nodes = True
     nt = m.node_tree
@@ -113,9 +127,43 @@ def building_material(glow_scale):
     nt.links.new(col.outputs['Color'], p.inputs['Base Color'])
     nt.links.new(col.outputs['Color'], p.inputs['Emission Color'])
     nt.links.new(glow.outputs['Fac'], mul.inputs[0])
-    nt.links.new(mul.outputs[0], p.inputs['Emission Strength'])
     p.inputs['Roughness'].default_value = 0.7
+    if wall_glow >= 1.0:
+        nt.links.new(mul.outputs[0], p.inputs['Emission Strength'])
+        return m
+    geo = nt.nodes.new('ShaderNodeNewGeometry')
+    sep = nt.nodes.new('ShaderNodeSeparateXYZ')
+    ab = nt.nodes.new('ShaderNodeMath')
+    ab.operation = 'ABSOLUTE'
+    ma = nt.nodes.new('ShaderNodeMath')
+    ma.operation = 'MULTIPLY_ADD'
+    ma.inputs[1].default_value, ma.inputs[2].default_value = 1.0 - wall_glow, wall_glow
+    mul2 = nt.nodes.new('ShaderNodeMath')
+    mul2.operation = 'MULTIPLY'
+    nt.links.new(geo.outputs['Normal'], sep.inputs[0])
+    nt.links.new(sep.outputs['Z'], ab.inputs[0])
+    nt.links.new(ab.outputs[0], ma.inputs[0])
+    nt.links.new(mul.outputs[0], mul2.inputs[0])
+    nt.links.new(ma.outputs[0], mul2.inputs[1])
+    nt.links.new(mul2.outputs[0], p.inputs['Emission Strength'])
     return m
+
+
+def add_bloom(sc, strength, threshold=0.5):
+    """Compositor: Glare (Bloom) after the render (Blender 5 compositor node groups)."""
+    tree = bpy.data.node_groups.new('compositor', 'CompositorNodeTree')
+    tree.interface.new_socket(name='Image', in_out='OUTPUT', socket_type='NodeSocketColor')
+    rl = tree.nodes.new('CompositorNodeRLayers')
+    gl = tree.nodes.new('CompositorNodeGlare')
+    gl.inputs['Type'].default_value = 'Bloom'
+    gl.inputs['Quality'].default_value = 'High'
+    gl.inputs['Threshold'].default_value = threshold
+    gl.inputs['Strength'].default_value = strength
+    out = tree.nodes.new('NodeGroupOutput')
+    tree.links.new(rl.outputs['Image'], gl.inputs['Image'])
+    tree.links.new(gl.outputs['Image'], out.inputs['Image'])
+    sc.compositing_node_group = tree
+    sc.render.use_compositing = True
 
 
 def add_haze(m, start, scale, colour):
@@ -162,7 +210,9 @@ def main():
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     ap = argparse.ArgumentParser()
     ap.add_argument('--name', required=True)
-    ap.add_argument('--glow', type=float, default=0.3, help='Emission strength multiplier (0 = none)')
+    ap.add_argument('--look', choices=sorted(LOOKS), default='day',
+                    help='day -> scene.blend, night -> scene_night.blend (glow, moonlight, bloom)')
+    ap.add_argument('--glow', type=float, help="Emission strength multiplier (default: the look's)")
     ap.add_argument('--sun-elevation', type=float, default=25, help='degrees')
     ap.add_argument('--sun-azimuth', type=float, default=225, help='degrees from north, clockwise (225 = SW)')
     ap.add_argument('--cam-azimuth', type=float, default=200, help='camera direction from centre, deg from north')
@@ -174,6 +224,9 @@ def main():
     ap.add_argument('--haze-scale', type=float, default=5000, help='m; 63 %% hazed this far past the start')
     ap.add_argument('--horizon', type=float, default=40000, help='Ground plane size beyond the data, m (0 = none)')
     args = ap.parse_args(argv)
+    look = dict(LOOKS[args.look])
+    if args.glow is not None:
+        look['glow'] = args.glow
 
     folder = HERE / 'scenes' / args.name
     scene_data = json.loads((folder / 'scene.json').read_text())
@@ -192,14 +245,15 @@ def main():
     n_cls = len(palette) - 1
     cols = [(*lin(palette[c]), 1.0) for c in range(len(palette))]
     # Glow rises with the class: none for uncovered, faint for the lowest, full at the top
-    glows = [0.0] + [0.05 + 0.95 * (k / max(1, n_cls - 1)) ** 2 for k in range(n_cls)]
+    fl, pw = look['glow_floor'], look['glow_power']
+    glows = [0.0] + [fl + (1 - fl) * (k / max(1, n_cls - 1)) ** pw for k in range(n_cls)]
     a = me.color_attributes.new('col', 'FLOAT_COLOR', 'FACE')
     a.data.foreach_set('color', [v for c in fcls for v in cols[c]])
     g = me.attributes.new('glow', 'FLOAT', 'FACE')
     g.data.foreach_set('value', [glows[c] for c in fcls])
     k = me.attributes.new('cls', 'INT', 'FACE')
     k.data.foreach_set('value', fcls)
-    me.materials.append(building_material(args.glow))
+    me.materials.append(building_material(look['glow'], look['wall_glow']))
     print(f"buildings: {len(scene_data['buildings']):,} polygons, {len(verts):,} vertices, {len(faces):,} faces")
 
     # Ground layers
@@ -212,7 +266,8 @@ def main():
         gob = make_mesh(f'ground_{layer}', v, f)
         rgb = BASE_RGB if layer == 'base' else colours.get(GROUND_COLOUR.get(layer, layer), (40, 40, 40))
         gob.data.materials.append(flat_material(f'ground_{layer}', rgb,
-                                                roughness=0.25 if layer == 'water' else 0.9))
+                                                roughness=0.25 if layer == 'water' else 0.9,
+                                                glow={'roads': look['road_glow'], 'water': look['water_glow']}.get(layer, 0.0)))
     print('ground: ' + ', '.join(f'{k} {len(v)}' for k, v in scene_data['ground'].items()))
     if args.horizon:  # ground plane to the horizon, just below the data's base, so there's no edge
         h = args.horizon / 2
@@ -222,7 +277,7 @@ def main():
 
     # Distance haze in the sky colour on every material
     for m in bpy.data.materials:
-        add_haze(m, args.haze_start, args.haze_scale, HORIZON)
+        add_haze(m, args.haze_start, args.haze_scale, look['horizon'])
 
     # World: dark blue sky, a little lighter towards the horizon (gives depth; matches the haze)
     world = bpy.data.worlds.new('world')
@@ -235,8 +290,8 @@ def main():
     rng.inputs['From Min'].default_value, rng.inputs['From Max'].default_value = 0.0, 0.35
     ramp = wn.nodes.new('ShaderNodeMix')
     ramp.data_type = 'RGBA'
-    ramp.inputs['A'].default_value = (*HORIZON, 1)
-    ramp.inputs['B'].default_value = (*SKY, 1)
+    ramp.inputs['A'].default_value = (*look['horizon'], 1)
+    ramp.inputs['B'].default_value = (*look['sky'], 1)
     wn.links.new(tc.outputs['Generated'], sep.inputs[0])
     wn.links.new(sep.outputs['Z'], rng.inputs['Value'])
     wn.links.new(rng.outputs['Result'], ramp.inputs['Factor'])
@@ -246,9 +301,9 @@ def main():
 
     # Sun
     sun = bpy.data.lights.new('sun', 'SUN')
-    sun.energy = 3.0
+    sun.energy = look['sun_energy']
     sun.angle = math.radians(1.5)
-    sun.color = (1.0, 0.92, 0.82)
+    sun.color = look['sun_colour']
     sob = bpy.data.objects.new('sun', sun)
     sc.collection.objects.link(sob)
     el, az = math.radians(args.sun_elevation), math.radians(args.sun_azimuth)
@@ -268,6 +323,13 @@ def main():
         v = json.loads((HERE / 'views' / f'{args.view}.json').read_text())
         cob.location, cob.rotation_euler, cam.lens = v['location'], v['rotation_euler'], v['lens']
     sc.camera = cob
+    # Focus target for depth of field / tilt-shift (render.py --fstop)
+    focus = bpy.data.objects.new('focus_pkin', None)
+    focus.location = FOCUS_PKIN
+    sc.collection.objects.link(focus)
+    cam.dof.focus_object = focus
+    if look['bloom']:
+        add_bloom(sc, look['bloom'])
 
     # Eevee: ray-traced reflections/AO where this version has them (drafts look closer to Cycles)
     if hasattr(sc.eevee, 'use_raytracing'):
@@ -291,7 +353,7 @@ def main():
                         space.shading.type = 'MATERIAL'
                         space.shading.use_scene_lights = True
                         space.shading.use_scene_world = True
-    out = folder / 'scene.blend'
+    out = folder / ('scene.blend' if args.look == 'day' else f'scene_{args.look}.blend')
     bpy.ops.wm.save_as_mainfile(filepath=str(out))
     print(f"saved {out}")
 

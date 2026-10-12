@@ -37,6 +37,8 @@ def main():
     ap.add_argument('--width', type=int, default=1600)
     ap.add_argument('--height', type=int, default=1000)
     ap.add_argument('--lens', type=float, help='Override the focal length, mm (smaller = wider)')
+    ap.add_argument('--fstop', type=float, help="Depth of field (tilt-shift), focused on the empty 'focus_pkin'; "
+                    "city scale needs tiny values: ~0.002-0.01 (smaller = blurrier). Default: the view's 'fstop', if any")
     ap.add_argument('--view', help='Use 3d/views/<name>.json (save_view.py) instead of the saved camera')
     args = ap.parse_args(argv)
 
@@ -48,6 +50,13 @@ def main():
         sc.camera.data.lens = v['lens']
     if args.lens:
         sc.camera.data.lens = args.lens
+    fstop = args.fstop if args.fstop is not None else (v.get('fstop') if args.view else None)
+    if fstop:
+        dof = sc.camera.data.dof
+        dof.use_dof = True
+        dof.focus_object = dof.focus_object or bpy.data.objects.get('focus_pkin')
+        dof.aperture_fstop = fstop
+        print(f"tilt-shift: f/{fstop} focused on {dof.focus_object.name if dof.focus_object else dof.focus_distance}")
     sc.render.resolution_x, sc.render.resolution_y = args.width, args.height
     sc.render.resolution_percentage = 100
     if args.engine == 'eevee':
