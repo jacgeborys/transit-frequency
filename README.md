@@ -64,7 +64,9 @@ Key numbers of the new maps (Wed 14.10.2026):
   the scale bar, rotated to true north, +22 deg). Style test (Tricity only, `POSTER['tricity']['extra']`):
   rising lightness floor `--min-lightness 40 --min-lightness-step 1.6` (the low blues were pinned at
   L* 34: gloomy, blurring into unserved buildings; now every class is a step lighter), roads
-  60,61,72 / casing 104,106,120 @ 0.15 mm (easier to navigate; `style_grid_tricity_roads.png`), railways 100,100,112, water one step darker 22,39,63. Comparisons in
+  80,82,94 / faint casing 66,68,80 @ 0.06 mm (solid streaks, fill L* ~35 stays below the dimmest
+  served building so the buildings lead; a strong casing doubled every road into noisy lines;
+  `style_grid_tricity_roads_fill.png`), railways 100,100,112, water one step darker 22,39,63. Comparisons in
   `png/archive/how_it_was_made/style/tricity_blue/`. Other cities keep the old style until told.
 - **Amsterdam**: city core, 1,587 stops, 183k departures; avg 20.8 ha; Schiphol terminal
   platforms skipped (an older run, before the island walk).

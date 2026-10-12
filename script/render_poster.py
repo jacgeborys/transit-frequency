@@ -53,11 +53,11 @@ POSTER = {
     'poznan': {'city': 'POZNAŃ', **PL},
     'gdansk': {'city': 'GDAŃSK', **PL},
     # Style test 2026-10-12: rising lightness floor (low blues brighter, every class still a step
-    # lighter), roads easier to follow (brighter fill, brighter + thicker casing), water one step darker (26,46,74 -> 22,39,63)
+    # lighter), roads as solid streaks (strong fill below the dimmest served building, L* ~35; faint casing), water one step darker (26,46,74 -> 22,39,63)
     'tricity': {'city': 'TRÓJMIASTO', **PL,
                 'extra': ['--min-lightness', '40', '--min-lightness-step', '1.6',
-                          '--recolor', 'roads=60,61,72', '--road-edge-rgb', '104,106,120',
-                          '--road-edge-mm', '0.15',
+                          '--recolor', 'roads=80,82,94', '--road-edge-rgb', '66,68,80',
+                          '--road-edge-mm', '0.06',
                           '--recolor', 'railways=100,100,112',
                           '--recolor', 'water=22,39,63']},
     'lublin': {'city': 'LUBLIN', **PL},
