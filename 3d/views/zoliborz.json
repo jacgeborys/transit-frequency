@@ -9,7 +9,8 @@
   0.0,
   -2.34137
  ],
- "lens": 40.0,
+ "lens": 28.0,
  "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_wide\\scene.blend",
- "from": "camera"
+ "from": "camera",
+ "note": "lens widened from 40 to 28 mm on 2026-10-12 (40 felt narrow)"
 }

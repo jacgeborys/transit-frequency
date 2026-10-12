@@ -97,7 +97,7 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   `--bounds xmin,ymin,xmax,ymax` (m from the centre) widens the area without moving the origin.
   Saved views: `center` (from SSW over Śródmieście; the build defaults, i.e. draft 2's framing, which the
   user prefers to their own re-aligned camera), `mokotow` (from above Mokotów looking north),
-  `zoliborz` (from Żoliborz looking SE). `build_blend.py --view <name>` starts the .blend with that camera.
+  `zoliborz` (from Żoliborz looking SE, lens 28 mm: 40 felt narrow). `render.py --lens` overrides the lens. `build_blend.py --view <name>` starts the .blend with that camera.
 - `build_blend.py` also adds a 40 km ground plane and a distance haze in the sky colour on every
   material (Camera Data distance, `--haze-start 2500 --haze-scale 5000`), so a wide view has no edge.
 - Sky: gradient from a dark zenith to a slightly lighter navy horizon (= haze colour); Eevee raytracing on.
@@ -119,5 +119,8 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   `scenes/warsaw_wide`, rebuilt with `--view zoliborz`). Earlier drafts moved to `3d/renders/drafts/`.
   The user likes the shadows/look.
 - 2026-10-12: ground layers tiled (see export) -> the river is visible again and the ground is dark with
-  road lines instead of the earlier grey sheets; finals re-rendered. Next: try
+  road lines instead of the earlier grey sheets; finals re-rendered.
+- 2026-10-12: `warsaw_wide` extended north/east for the wider Żoliborz view: `--bounds=-7000,-6500,7000,9000`
+  (14 x 15.5 km, 94k building polygons, 1.85M faces, json 37 MB, export 3 min). Lens comparison in
+  `3d/renders/drafts/06_zoliborz_lens{32,28}.png`. Next: try
   a night/glow look, height = frequency, labels/legend overlay, New York.

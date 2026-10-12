@@ -36,6 +36,7 @@ def main():
     ap.add_argument('--samples', type=int, default=128)
     ap.add_argument('--width', type=int, default=1600)
     ap.add_argument('--height', type=int, default=1000)
+    ap.add_argument('--lens', type=float, help='Override the focal length, mm (smaller = wider)')
     ap.add_argument('--view', help='Use 3d/views/<name>.json (save_view.py) instead of the saved camera')
     args = ap.parse_args(argv)
 
@@ -45,6 +46,8 @@ def main():
         sc.camera.location = v['location']
         sc.camera.rotation_euler = v['rotation_euler']
         sc.camera.data.lens = v['lens']
+    if args.lens:
+        sc.camera.data.lens = args.lens
     sc.render.resolution_x, sc.render.resolution_y = args.width, args.height
     sc.render.resolution_percentage = 100
     if args.engine == 'eevee':
