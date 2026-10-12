@@ -61,8 +61,11 @@ Key numbers of the new maps (Wed 14.10.2026):
   train); isochrones median 22.7 ha, 0 stops skipped. ZKM Gdynia GTFS:
   `https://api.zdiz.gdynia.pl/pt/gtfs.zip`. ZTM Gdańsk's feed only covers ~2 weeks ahead
   (to 24.10 here), so pick a date close to the download. Whole run 23 min. North arrow (`'north_arrow': True` in cities.py; minimal split needle above
-  the scale bar, rotated to true north, +22 deg). Open: mid classes (170-450, magenta) nearly as
-  bright as the top, so evenly served areas look cluttered; a dimmer low/mid ramp is being considered.
+  the scale bar, rotated to true north, +22 deg). Style test (Tricity only, `POSTER['tricity']['extra']`):
+  rising lightness floor `--min-lightness 40 --min-lightness-step 1.6` (the low blues were pinned at
+  L* 34: gloomy, blurring into unserved buildings; now every class is a step lighter), roads
+  46,47,56 / casing 86,88,100, water one step darker 22,39,63. Comparisons in
+  `png/archive/how_it_was_made/style/tricity_blue/`. Other cities keep the old style until told.
 - **Amsterdam**: city core, 1,587 stops, 183k departures; avg 20.8 ha; Schiphol terminal
   platforms skipped (an older run, before the island walk).
 
