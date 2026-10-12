@@ -52,7 +52,12 @@ POSTER = {
     'krakow': {'city': 'KRAKÓW', **PL},
     'poznan': {'city': 'POZNAŃ', **PL},
     'gdansk': {'city': 'GDAŃSK', **PL},
-    'tricity': {'city': 'TRÓJMIASTO', **PL},
+    # Style test 2026-10-12: rising lightness floor (low blues brighter, every class still a step
+    # lighter), lighter roads, darker water (so it doesn't compete with the low-class blue)
+    'tricity': {'city': 'TRÓJMIASTO', **PL,
+                'extra': ['--min-lightness', '40', '--min-lightness-step', '1.6',
+                          '--recolor', 'roads=46,47,56', '--road-edge-rgb', '86,88,100',
+                          '--recolor', 'water=14,25,40']},
     'lublin': {'city': 'LUBLIN', **PL},
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},

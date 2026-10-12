@@ -188,7 +188,7 @@ def lstar(rgb):
     return 116 * y ** (1 / 3) - 16 if y > 0.008856 else 903.3 * y
 
 
-def apply_palette(renderer, name, extend=None, min_lightness=0.0):
+def apply_palette(renderer, name, extend=None, min_lightness=0.0, min_step=0.0):
     """Recolour a graduated renderer's classes in place with a matplotlib colormap."""
     if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
         return
@@ -220,14 +220,15 @@ def apply_palette(renderer, name, extend=None, min_lightness=0.0):
     syms = [s for _, _, s, _, _ in renderer['ranges']]
     for k, sym_name in enumerate(syms):
         r, g, bl, _ = cmap(a + (b - a) * k / max(1, len(syms) - 1))
-        if min_lightness and lstar((r, g, bl)) < min_lightness:
+        floor = min_lightness + min_step * k if min_lightness else 0.0  # rising floor: every class lighter
+        if floor and lstar((r, g, bl)) < floor:
             # Never look darker than the floor (dark mode: lighter than unserved buildings).
             # Perceived lightness (CIE L*), raised via HLS lightness so the hue is kept
             h_, l_, s_ = colorsys.rgb_to_hls(r, g, bl)
             lo, hi = l_, 1.0
             for _ in range(30):
                 mid = (lo + hi) / 2
-                if lstar(colorsys.hls_to_rgb(h_, mid, s_)) < min_lightness:
+                if lstar(colorsys.hls_to_rgb(h_, mid, s_)) < floor:
                     lo = mid
                 else:
                     hi = mid
@@ -1040,6 +1041,9 @@ def main():
                         help="Forests only (after --green-rgb), e.g. a touch darker than the other greens")
     parser.add_argument('--palette-extend', default=None,
                         help="Extra colours past the palette top, e.g. '#fff38a,#fffbd6'")
+    parser.add_argument('--min-lightness-step', type=float, default=0.0,
+                        help='Raise the --min-lightness floor by this many L* per class, so the '
+                             'floored low classes still get lighter step by step')
     parser.add_argument('--min-lightness', type=float, default=0.0,
                         help='Lift class colours to at least this perceived lightness (CIE L*, 0-100); '
                              'in dark mode keeps the lowest classes lighter than unserved buildings '
@@ -1228,7 +1232,8 @@ def main():
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
             layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
-            apply_palette(layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
+            apply_palette(layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness,
+                          args.min_lightness_step)
             if args.min_fill_lightness:
                 bg_rgb = tuple(int(v) / 255 for v in args.bg_rgb.split(',')) if args.bg_rgb else (1, 1, 1)
                 fade = args.coverage_fade if args.buildings else 1.0
@@ -1463,7 +1468,8 @@ def main():
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = args.legend_title or leg_node.get('name')
-        apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness)
+        apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness,
+                          args.min_lightness_step)
         legend_rect = draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy, corner=city.get('legend_corner'),
