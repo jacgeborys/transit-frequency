@@ -58,6 +58,7 @@ POSTER = {
                 'extra': ['--min-lightness', '40', '--min-lightness-step', '1.6',
                           '--recolor', 'roads=60,61,72', '--road-edge-rgb', '104,106,120',
                           '--road-edge-mm', '0.15',
+                          '--recolor', 'railways=100,100,112',
                           '--recolor', 'water=22,39,63']},
     'lublin': {'city': 'LUBLIN', **PL},
     'berlin': {'city': 'BERLIN', **DE},
