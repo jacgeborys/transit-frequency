@@ -1,0 +1,15 @@
+{
+ "location": [
+  -782.88,
+  -2408.6,
+  1517.36
+ ],
+ "rotation_euler": [
+  1.10317,
+  -0.0,
+  -0.36984
+ ],
+ "lens": 40.0,
+ "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_center\\scene.blend",
+ "from": "camera"
+}

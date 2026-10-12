@@ -90,6 +90,13 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   `glow` (emission by class), `cls`; flat ground meshes; low sun (`--sun-azimuth/--sun-elevation`),
   dark sky, camera (`--cam-azimuth/--cam-distance/--cam-height/--lens`), view transform Standard
   (keeps the poster colours). `--glow` scales the emission (0.3 default; 1.0 washes out the shading).
+- `save_view.py` (inside Blender): saves the camera (or with `--from-viewport` the main 3D view,
+  lens halved to match) of a .blend to `3d/views/<name>.json`; `render.py --view <name>` applies it.
+  Views stay valid across rebuilds because every export keeps the scene origin at `--center` (PKIN);
+  `--bounds xmin,ymin,xmax,ymax` (m from the centre) widens the area without moving the origin.
+  Saved views: `center` (from SSW over Śródmieście), `mokotow` (from above Mokotów looking north).
+- `build_blend.py` also adds a 40 km ground plane and a distance haze in the sky colour on every
+  material (Camera Data distance, `--haze-start 2500 --haze-scale 5000`), so a wide view has no edge.
 - `render.py`: Eevee (default, ~20 s at 1600x1000) or `--engine cycles --samples N` on CUDA. Uses
   the camera saved in the .blend, so a view chosen by hand in Blender is kept.
 
@@ -98,5 +105,9 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 - 2026-10-12: folder + plan created.
 - 2026-10-12: Blender 5.2.2 installed; pipeline works end to end. First drafts of central Warsaw
   (3x3 km around PKIN, 6,876 building polygons, 195k faces): `png/previews/3d_warsaw_draft{1,2}.png`,
-  copies in `png/archive/how_it_was_made/3d/`. Next: the user picks a camera in Blender; then try
-  night/glow vs low-sun looks, circle crop, height = frequency, Cycles final.
+  copies in `png/archive/how_it_was_made/3d/`.
+- 2026-10-12: the user chose two views in Blender (`3d/views/center.json`, `mokotow.json`) and wants a
+  broad perspective, not a cut-out diorama. Scene `warsaw_wide`: `--bounds=-6000,-6500,5000,5500`
+  (11 x 12 km, 60k building polygons, 1.26M faces, json 24 MB, export 2.5 min, build 16 s, Eevee
+  render ~25 s) -> `png/previews/3d_warsaw_wide_{center,mokotow}.png`. Next: try
+  night/glow vs low-sun looks, height = frequency, Cycles final.

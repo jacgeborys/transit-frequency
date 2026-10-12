@@ -1,0 +1,15 @@
+{
+ "location": [
+  279.26,
+  -4769.08,
+  1388.61
+ ],
+ "rotation_euler": [
+  1.15902,
+  -0.0,
+  0.19983
+ ],
+ "lens": 40.0,
+ "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_center\\scene_mokotow.blend",
+ "from": "camera"
+}

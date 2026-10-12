@@ -104,6 +104,8 @@ def main():
     ap.add_argument('--center', required=True, help='lat,lon')
     ap.add_argument('--radius', type=float, default=1500, help='Half-side (square) or radius (circle), m')
     ap.add_argument('--shape', choices=['square', 'circle'], default='square')
+    ap.add_argument('--bounds', help='xmin,ymin,xmax,ymax in m relative to --center (overrides --radius); '
+                                     'the centre stays the scene origin, so saved views still fit')
     ap.add_argument('--data', help='Data folder with buildings_gates.gpkg (default: latest)')
     ap.add_argument('--name', required=True)
     ap.add_argument('--big-grey', action='store_true',
@@ -116,10 +118,15 @@ def main():
     cx, cy = Transformer.from_crs('EPSG:4326', crs, always_xy=True).transform(lon, lat)
     r = args.radius
     bbox_m = (cx - r, cy - r, cx + r, cy + r)
+    if args.bounds:
+        x0, y0, x1, y1 = (float(v) for v in args.bounds.split(','))
+        bbox_m = (cx + x0, cy + y0, cx + x1, cy + y1)
+        args.shape = 'square'
     crop = box(*bbox_m) if args.shape == 'square' else Point(cx, cy).buffer(r, 128)
     data = Path(args.data) if args.data else sorted(
         d for d in city['data_dir'].iterdir() if (d / 'buildings_gates.gpkg').exists())[-1]
-    print(f"{city['name']}: {2 * r:g} m {args.shape} around {lat}, {lon}; data {data.name}")
+    print(f"{city['name']}: {(bbox_m[2] - bbox_m[0]) / 1000:g} x {(bbox_m[3] - bbox_m[1]) / 1000:g} km "
+          f"{args.shape} around {lat}, {lon}; data {data.name}")
 
     # Frequency per footprint (same file as the poster)
     freq = read(data / 'buildings_gates.gpkg', crs, bbox_m)
@@ -205,7 +212,7 @@ def main():
     out_dir = HERE / 'scenes' / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
     scene = {'city': city['key'], 'crs': crs, 'center_lonlat': [lon, lat], 'center_xy': [cx, cy],
-             'radius': r, 'shape': args.shape, 'data': str(data),
+             'radius': r, 'bbox_local': [round(v, 1) for v in (bbox_m[0] - cx, bbox_m[1] - cy, bbox_m[2] - cx, bbox_m[3] - cy)], 'shape': args.shape, 'data': str(data),
              'palette': palette, 'class_labels': ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes],
              'colours': {k: v for k, v in col.items() if k != 'classes'},
              'buildings': buildings, 'ground': ground}

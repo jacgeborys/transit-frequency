@@ -6,7 +6,8 @@ Runs inside Blender:
 
 Writes 3d/scenes/<name>/scene.blend: buildings as one mesh with a per-face colour attribute
 'col' (poster class colours, linear) and 'glow' (emission strength by class), flat ground
-layers (base, green, forest, water, roads, railways) slightly stacked in z, a low sun,
+layers (base, green, forest, water, roads, railways) slightly stacked in z, a ground plane out
+to the horizon, distance haze in the sky colour, a low sun,
 a dark sky and an oblique camera looking at the centre. Open it in Blender to look around;
 render with 3d/render.py.
 """
@@ -25,6 +26,7 @@ GROUND_Z = {'base': 0.0, 'green': 0.05, 'forest': 0.06, 'water': 0.08, 'roads': 
 GROUND_COLOUR = {'base': 'background', 'green': 'green', 'forest': 'forest', 'water': 'water',
                  'roads': 'roads', 'railways': 'railways'}
 BASE_RGB = (12, 12, 15)  # ground plane: a touch above the poster's pure black so it reads in 3D
+SKY = (0.004, 0.005, 0.009)  # linear; world colour and haze colour
 
 
 def srgb_to_linear(c):
@@ -115,6 +117,41 @@ def building_material(glow_scale):
     return m
 
 
+def add_haze(m, start, scale, colour):
+    """Fade the material towards `colour` with distance from the camera: a cheap fog that
+    works the same in Eevee and Cycles (no volumes). fac = 1 - exp(-max(0, d - start) / scale)."""
+    nt = m.node_tree
+    out = next(n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL')
+    surf = out.inputs['Surface'].links[0].from_socket
+    cam = nt.nodes.new('ShaderNodeCameraData')
+    sub = nt.nodes.new('ShaderNodeMath')
+    sub.operation, sub.use_clamp = 'SUBTRACT', False
+    sub.inputs[1].default_value = start
+    mx = nt.nodes.new('ShaderNodeMath')
+    mx.operation = 'MAXIMUM'
+    mx.inputs[1].default_value = 0.0
+    div = nt.nodes.new('ShaderNodeMath')
+    div.operation = 'DIVIDE'
+    div.inputs[1].default_value = -scale
+    ex = nt.nodes.new('ShaderNodeMath')
+    ex.operation = 'EXPONENT'
+    inv = nt.nodes.new('ShaderNodeMath')
+    inv.operation, inv.use_clamp = 'SUBTRACT', True
+    inv.inputs[0].default_value = 1.0
+    em = nt.nodes.new('ShaderNodeEmission')
+    em.inputs['Color'].default_value = (*colour, 1)
+    mix = nt.nodes.new('ShaderNodeMixShader')
+    nt.links.new(cam.outputs['View Distance'], sub.inputs[0])
+    nt.links.new(sub.outputs[0], mx.inputs[0])
+    nt.links.new(mx.outputs[0], div.inputs[0])
+    nt.links.new(div.outputs[0], ex.inputs[0])
+    nt.links.new(ex.outputs[0], inv.inputs[1])
+    nt.links.new(inv.outputs[0], mix.inputs['Fac'])
+    nt.links.new(surf, mix.inputs[1])
+    nt.links.new(em.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs['Surface'])
+
+
 def look_at(ob, target):
     d = Vector(target) - ob.location
     ob.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
@@ -131,6 +168,9 @@ def main():
     ap.add_argument('--cam-distance', type=float, default=3200, help='m, horizontal')
     ap.add_argument('--cam-height', type=float, default=1800, help='m')
     ap.add_argument('--lens', type=float, default=40, help='mm')
+    ap.add_argument('--haze-start', type=float, default=2500, help='m from the camera; no haze closer')
+    ap.add_argument('--haze-scale', type=float, default=5000, help='m; 63 %% hazed this far past the start')
+    ap.add_argument('--horizon', type=float, default=40000, help='Ground plane size beyond the data, m (0 = none)')
     args = ap.parse_args(argv)
 
     folder = HERE / 'scenes' / args.name
@@ -172,11 +212,20 @@ def main():
         gob.data.materials.append(flat_material(f'ground_{layer}', rgb,
                                                 roughness=0.25 if layer == 'water' else 0.9))
     print('ground: ' + ', '.join(f'{k} {len(v)}' for k, v in scene_data['ground'].items()))
+    if args.horizon:  # ground plane to the horizon, just below the data's base, so there's no edge
+        h = args.horizon / 2
+        hob = make_mesh('ground_horizon', [(-h, -h, -0.05), (h, -h, -0.05), (h, h, -0.05), (-h, h, -0.05)],
+                        [(0, 1, 2, 3)])
+        hob.data.materials.append(flat_material('ground_horizon', BASE_RGB))
+
+    # Distance haze in the sky colour on every material
+    for m in bpy.data.materials:
+        add_haze(m, args.haze_start, args.haze_scale, SKY)
 
     # World: dark blue-grey sky, so the shadow side isn't pure black
     world = bpy.data.worlds.new('world')
     world.use_nodes = True
-    world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.004, 0.005, 0.009, 1)
+    world.node_tree.nodes['Background'].inputs['Color'].default_value = (*SKY, 1)
     world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
     sc.world = world
 
@@ -194,7 +243,7 @@ def main():
     # Camera
     cam = bpy.data.cameras.new('camera')
     cam.lens = args.lens
-    cam.clip_start, cam.clip_end = 5, 20000
+    cam.clip_start, cam.clip_end = 5, 60000
     cob = bpy.data.objects.new('camera', cam)
     sc.collection.objects.link(cob)
     caz = math.radians(args.cam_azimuth)
@@ -214,7 +263,7 @@ def main():
             if area.type == 'VIEW_3D':
                 for space in area.spaces:
                     if space.type == 'VIEW_3D':
-                        space.clip_start, space.clip_end = 1, 20000
+                        space.clip_start, space.clip_end = 1, 60000
                         space.shading.type = 'MATERIAL'
                         space.shading.use_scene_lights = True
                         space.shading.use_scene_world = True
