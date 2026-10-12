@@ -389,6 +389,29 @@ CITIES['tricity'] = {
 }
 
 
+# Paris (2026-10-12): Paris intra-muros + the inner ring (La Défense, Saint-Denis, Montreuil,
+# Vincennes, Ivry, Boulogne). 22.1 x 15.4 km, landscape like Kraków's layout.
+CITIES['paris'] = {
+    'name': 'Paris',
+    # Covers the render frame below + 400 m
+    'bbox': {'south': 48.785, 'west': 2.190, 'north': 48.935, 'east': 2.508},
+    'crs_metric': 'EPSG:2154',  # Lambert-93 (metres)
+    'gtfs': {
+        # Île-de-France Mobilités: all of the region (RATP, SNCF RER/Transilien, Optile), clipped
+        'idfm': 'https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip',
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,
+    'has_frequencies': False,
+    'osm_pbf': ['europe/france/ile-de-france'],
+    'network_tiles': 10,
+    'template': 'krakow',
+    # EPSG:2154 m: 2.20-2.50 E, 48.79-48.93 N
+    'render_frame': (641230, 6854730, 663370, 6870120),
+}
+
+
 def get_city(name: str) -> dict:
     """Get city config by name (case-insensitive). Raises KeyError if not found."""
     key = name.lower().strip()

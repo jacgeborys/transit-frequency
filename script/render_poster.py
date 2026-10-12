@@ -46,6 +46,8 @@ DE_CH = {'headline': 'Wie viele Abfahrten erreichst du in 5 Minuten zu Fuss?',  
          'subline': 'Werktag · Mittwoch, {date}', 'legend_title': 'Abfahrten/Tag'}
 NL = {'headline': 'Hoeveel vertrekken binnen 5 minuten lopen?',
       'subline': 'werkdag · woensdag {date}', 'legend_title': 'Vertrekken/dag'}
+FR = {'headline': 'Combien de départs à 5 minutes à pied ?',
+      'subline': 'jour ouvré · mercredi {date}', 'legend_title': 'Départs/jour'}
 
 POSTER = {
     'warsaw': {'city': 'WARSZAWA', **PL, 'extra': ['--extend-left-m', '1000', '--extend-right-m', '1000']},
@@ -57,6 +59,7 @@ POSTER = {
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},
     'zurich': {'city': 'ZÜRICH', **DE_CH},
+    'paris': {'city': 'PARIS', **FR, 'subline': 'jour ouvré · mercredi 14 octobre 2026'},
     'sanfrancisco': {'city': 'SAN FRANCISCO', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'manhattan': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'newyork': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
