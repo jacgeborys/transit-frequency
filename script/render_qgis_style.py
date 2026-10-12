@@ -332,6 +332,37 @@ def draw_scale_bar(fig, to_fig, page_mm, map_mm, metres_per_mm, legend_rect=None
         lab = f'{v:g}' + (' km' if v == km else '')
         fig.text(*to_fig(x0 + length * v / km, y0 - h - page_mm[0] * 0.004), lab, ha='center',
                  va='bottom', fontproperties=fp, color=INK, zorder=12)
+    return x0, y0 - h - page_mm[0] * 0.004 - page_mm[0] * 0.019 * PT_MM  # left end, top of labels
+
+
+def draw_north_arrow(fig, to_fig, page_mm, anchor, angle_deg, align_left=True):
+    """Minimal split needle (left half filled, right half outlined) + 'N', rotated to true north.
+    anchor: (x, y_bottom) in page mm; angle_deg: true north clockwise from page-up."""
+    import math
+    from matplotlib.patches import Polygon
+    L = page_mm[0] * 0.034                # needle length
+    w = L * 0.30                          # needle width
+    gap = page_mm[0] * 0.012
+    cx = anchor[0] + (w / 2 + L * 0.05 if align_left else -w / 2 - L * 0.05)
+    cy = anchor[1] - gap - L / 2          # page mm grow downwards
+    a = math.radians(angle_deg)
+
+    def pt(u, v):                         # local (u right, v up) -> figure fraction
+        x = cx + u * math.cos(a) + v * math.sin(a)
+        y = cy - (-u * math.sin(a) + v * math.cos(a))
+        return to_fig(x, y)
+
+    tip, base, notch = (0, L / 2), -L / 2, -L / 2 + L * 0.26
+    left = [pt(*tip), pt(-w / 2, base), pt(0, notch)]
+    right = [pt(*tip), pt(w / 2, base), pt(0, notch)]
+    lw = 0.6
+    fig.add_artist(Polygon(right, closed=True, transform=fig.transFigure, zorder=12,
+                           facecolor=PAGE_FACE, edgecolor=INK, linewidth=lw, joinstyle='miter'))
+    fig.add_artist(Polygon(left, closed=True, transform=fig.transFigure, zorder=12,
+                           facecolor=INK, edgecolor=INK, linewidth=lw, joinstyle='miter'))
+    fp = inter('Medium', page_mm[0] * 0.022, '18pt')
+    fig.text(*pt(0, L / 2 + page_mm[0] * 0.011), 'N', ha='center', va='center',
+             fontproperties=fp, color=INK, zorder=12)
 
 
 USE_INTER = False  # poster mode (--headline-city): legend / credits in Inter too
@@ -1443,7 +1474,17 @@ def main():
         draw_headline(fig, to_fig, page_mm, (mx, my, mw, mh), args.headline_city,
                       args.headline or '', (args.subline or '').replace('{date}', args.date or ''))
     if args.scale_bar:
-        draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw, legend_rect)
+        bar = draw_scale_bar(fig, to_fig, page_mm, (mx, my, mw, mh), (extent[2] - extent[0]) / mw,
+                             legend_rect)
+        if city.get('north_arrow'):  # rotated maps: needle above the scale bar, to true north
+            import math
+            cx, cy = (extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2
+            to_ll = Transformer.from_crs(map_crs, 'EPSG:4326', always_xy=True)
+            lon, lat = to_ll.transform(cx, cy)
+            nx, ny = Transformer.from_crs('EPSG:4326', map_crs, always_xy=True).transform(lon, lat + 0.01)
+            angle = math.degrees(math.atan2(nx - cx, ny - cy))
+            draw_north_arrow(fig, to_fig, page_mm, bar, angle)
+            print(f"  north arrow: true north {angle:+.1f} deg from page-up")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
