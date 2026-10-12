@@ -28,7 +28,7 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 (La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
 From scratch in 83 min (osm extract 12, basemap 18, iso 18, coverage 9, preview 11). 8,654 stops,
 1.29 M departures 06-22 h. Stop check: only the usual station islands; Saint-Denis (SNCF) sits on
-the bbox's north edge, outside the frame. 150 dpi preview done; no 300 dpi final yet.
+the bbox's north edge, outside the frame. 150 dpi preview done; 300 dpi final rendered (7 min).
 
 **2026-10-12: all 9 finals re-rendered at 300 dpi with the unified poster style** (Tricity's style is now
 the default in `STYLE`, render_poster.py): low classes lifted by a rising lightness floor
@@ -270,6 +270,8 @@ interrupted run resumes.
 `3d/` = subproject (2026-10-12): Blender renders of buildings coloured by frequency; plan and
 status in `3d/README.md`.
 `png/` holds only the current 300 dpi finals (+ the milestone log `log_buildings_final.txt`);
+`png/compressed/` = the finals as JPEGs under 20 MB for sharing (`script/compress_finals.py`; full
+resolution except Berlin, scaled 0.66);
 `png/previews/` = working previews of the city in progress (empty between projects);
 `png/archive/how_it_was_made/{sketches,comparisons,style,previews,thumbs,logs}` = diagnostic
 sketches, analytical zooms, raster/vector and flat/hills comparisons, style experiments, 150 dpi
