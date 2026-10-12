@@ -271,7 +271,8 @@ interrupted run resumes.
 status in `3d/README.md`.
 `png/` holds only the current 300 dpi finals (+ the milestone log `log_buildings_final.txt`);
 `png/compressed/` = the finals as JPEGs under 20 MB for sharing (`script/compress_finals.py`; full
-resolution except Berlin, scaled 0.66);
+resolution except Berlin, scaled 0.66) + `collage_8_cities.jpg` (`script/make_collage.py`: 8 finals in two
+justified rows, PNG in `png/`);
 `png/previews/` = working previews of the city in progress (empty between projects);
 `png/archive/how_it_was_made/{sketches,comparisons,style,previews,thumbs,logs}` = diagnostic
 sketches, analytical zooms, raster/vector and flat/hills comparisons, style experiments, 150 dpi
