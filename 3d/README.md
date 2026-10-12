@@ -70,6 +70,33 @@ buildings vs low-sun shadows.
 - `.blend` files and scene caches are large: add `3d/scenes/` to `.gitignore`, commit scripts only.
 - Keep this README's **Status** section current.
 
+## Usage (working since 2026-10-12)
+
+```
+python 3d/export_scene.py --city warsaw --center 52.2318,21.0060 --radius 1500 --name warsaw_center
+blender --background --factory-startup --python 3d/build_blend.py -- --name warsaw_center
+blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -- --out png/previews/3d_warsaw.png
+```
+(`blender` = `"C:\Program Files\Blender Foundation\Blender 5.2lender.exe"`; 5.2.2 LTS installed.)
+
+- `export_scene.py` (Python 3.8 with geopandas): crop (square or `--shape circle`), heights from
+  `buildings_3d` (parts included: PKIN's columns etc.), frequency by `osm_id` or, for parts, from the
+  footprint the part's point lies in. Colours from `render_poster.poster_colours()` (the same code path
+  as the poster: bmy_dark + floor + extend, building shade/saturation). **Big buildings (PKIN, malls,
+  stations) are coloured by frequency** (the poster greys them; `--big-grey` for that). Ground layers
+  come from the poster's QGIS layer stack (Warsaw: `mapy_warszawy_misc` extract), roads buffered by
+  highway class. Output `3d/scenes/<name>/scene.json` (~3 MB for 3x3 km).
+- `build_blend.py` (inside Blender): one building mesh with face attributes `col` (linear colour),
+  `glow` (emission by class), `cls`; flat ground meshes; low sun (`--sun-azimuth/--sun-elevation`),
+  dark sky, camera (`--cam-azimuth/--cam-distance/--cam-height/--lens`), view transform Standard
+  (keeps the poster colours). `--glow` scales the emission (0.3 default; 1.0 washes out the shading).
+- `render.py`: Eevee (default, ~20 s at 1600x1000) or `--engine cycles --samples N` on CUDA. Uses
+  the camera saved in the .blend, so a view chosen by hand in Blender is kept.
+
 ## Status
 
-- 2026-10-12: folder + plan created. Blender not installed yet. Nothing rendered.
+- 2026-10-12: folder + plan created.
+- 2026-10-12: Blender 5.2.2 installed; pipeline works end to end. First drafts of central Warsaw
+  (3x3 km around PKIN, 6,876 building polygons, 195k faces): `png/previews/3d_warsaw_draft{1,2}.png`,
+  copies in `png/archive/how_it_was_made/3d/`. Next: the user picks a camera in Blender; then try
+  night/glow vs low-sun looks, circle crop, height = frequency, Cycles final.

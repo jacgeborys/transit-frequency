@@ -66,6 +66,44 @@ POSTER = {
 }
 
 
+def style_value(flag, style=STYLE):
+    """Value following `flag` in STYLE (all occurrences for repeatable flags like --recolor)."""
+    vals = [style[i + 1] for i, s in enumerate(style) if s == flag]
+    return vals if flag in ('--recolor', '--line-scale') else (vals[0] if vals else None)
+
+
+def poster_colours(city_key):
+    """Poster colours as 0-255 RGB tuples, for other renderers (3d/): building classes
+    [(lower, upper, rgb)] (QGIS semantics: lower < max_trips <= upper), uncovered buildings,
+    background, green, forest and each --recolor layer. Same code path as render_qgis_style."""
+    import render_qgis_style as rq
+    city = get_city(city_key)
+    tmpl = city if 'qgis_layout' in city else get_city(city.get('template', 'krakow'))
+    root = rq.load_project(rq.PROJECT_FILE)
+    layers = {ml.find('id').text: ml for ml in root.iter('maplayer')}
+    group = rq.find_group(rq.find_group(root.find('layer-tree-group'), 'Tlo'), tmpl['qgis_group'])
+    cov = next(rq.parse_layer(layers[i], rq.PROJECT_DIR) for i in rq.visible_layer_ids(group)
+               if 'coverage_map' in rq.parse_layer(layers[i], rq.PROJECT_DIR)['path'].name)
+    r = cov['renderer']
+    extend = style_value('--palette-extend')
+    rq.apply_palette(r, style_value('--palette'), extend.split(',') if extend else None,
+                     float(style_value('--min-lightness')), float(style_value('--min-lightness-step')))
+    br = rq.building_renderer(r, float(style_value('--building-shade')),
+                              float(style_value('--building-saturation')))
+    classes = []
+    for lo, hi, sym, _, _ in br['ranges']:
+        fill = next(p for c, p in br['symbols'][sym]['layers'] if c == 'SimpleFill')
+        classes.append((lo, hi, tuple(int(v) for v in fill['color'].split(',')[:3])))
+    rgb = lambda s: tuple(int(v) for v in s.split(','))  # noqa: E731
+    out = {'classes': classes, 'uncovered': rgb(style_value('--uncovered-rgb')),
+           'background': rgb(style_value('--bg-rgb')), 'green': rgb(style_value('--green-rgb')),
+           'forest': rgb(style_value('--forest-rgb'))}
+    for spec in style_value('--recolor'):
+        stem, c = spec.split('=')
+        out[stem] = rgb(c)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--city', required=True)
