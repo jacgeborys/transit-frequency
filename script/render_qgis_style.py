@@ -1156,8 +1156,6 @@ def main():
             lx, ly = parse_mm(legend_item.get('position'))
             legend_shift = dw if lx > old_w / 2 else 0.0
             legend_dy = dh if ly > old_page_h / 2 else 0.0
-            # Template cities: legend flush into the template's corner (shares the map frame)
-            template_corner = ('bottom' if ly > old_page_h / 2 else 'top') + '-' +                               ('right' if lx > old_w / 2 else 'left')
         print(f"  template frame: {(extent[2]-extent[0])/1000:.1f} x {(extent[3]-extent[1])/1000:.1f} km, "
               f"page {page_mm[0]:.0f} x {page_mm[1]:.0f} mm")
     if args.extend_left_m or args.extend_right_m:
@@ -1490,7 +1488,7 @@ def main():
         legend_rect = draw_legend(fig, page_mm, legend_item, leg_layer, to_fig,
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy,
-                    corner=city.get('legend_corner') or locals().get('template_corner'),
+                    corner=city.get('legend_corner', 'bottom-right'),  # always flush in a corner
                     map_mm=(mx, my, mw, mh), scale=leg_scale)
 
     legend_rect = locals().get('legend_rect')
