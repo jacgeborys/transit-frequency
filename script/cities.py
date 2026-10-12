@@ -359,6 +359,36 @@ CITIES['newyork'] = {
 }
 
 
+# Tricity (2026-10-12): Gdańsk + Sopot + Gdynia in one frame rotated so the coast runs upright
+# (the Gdańsk Główny -> Gdynia Główna axis is ~22 deg west of north). The old 'gdansk' (city
+# proper, QGIS layout) stays as it was.
+CITIES['tricity'] = {
+    'name': 'Trójmiasto',
+    # Covers the rotated render frame below + 400 m
+    'bbox': {'south': 54.289, 'west': 18.335, 'north': 54.604, 'east': 18.755},
+    'crs_metric': 'EPSG:2180',
+    # gamma 112 (with alpha 90) = Gdańsk Główny and Gdynia Główna on one vertical line
+    'render_crs': ('+proj=omerc +lat_0=54.44 +lonc=18.58 +alpha=90 +gamma=112 +k_0=1 '
+                   '+x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs'),
+    # m in render_crs: Orunia/Ujeścisko .. Babie Doły/Cisowa, airport/Osowa .. Stogi (16.0 x 30.2 km;
+    # Rumia mostly outside)
+    'render_frame': (-9800, -13600, 6200, 16600),
+    'legend_corner': 'top-right',  # over the Gulf of Gdańsk east of Gdynia/Sopot
+    'gtfs': {
+        'gdansk': 'https://ckan.multimediagdansk.pl/dataset/c24aa637-3619-4dc2-a171-a23eec8f2172/resource/30e783e4-2bec-4a7d-bb22-ee3e3b26ca96/download/gtfsgoogle.zip',
+        'gdynia': 'https://api.zdiz.gdynia.pl/pt/gtfs.zip',           # ZKM Gdynia (+ trolleybuses)
+        'trains': 'https://mkuran.pl/gtfs/polish_trains.zip',       # SKM, PKM (PolRegio), IC; clipped
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,  # all three feeds carry route_type (700/800/900/2)
+    'has_frequencies': False,
+    'osm_pbf': ['europe/poland/pomorskie'],
+    'network_tiles': 8,
+    'template': 'krakow',
+}
+
+
 def get_city(name: str) -> dict:
     """Get city config by name (case-insensitive). Raises KeyError if not found."""
     key = name.lower().strip()
