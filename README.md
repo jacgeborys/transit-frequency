@@ -24,6 +24,12 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 
 ## Status (2026-10-12)
 
+**2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
+(La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
+From scratch in 83 min (osm extract 12, basemap 18, iso 18, coverage 9, preview 11). 8,654 stops,
+1.29 M departures 06-22 h. Stop check: only the usual station islands; Saint-Denis (SNCF) sits on
+the bbox's north edge, outside the frame. 150 dpi preview done; no 300 dpi final yet.
+
 **2026-10-12: all 9 finals re-rendered at 300 dpi with the unified poster style** (Tricity's style is now
 the default in `STYLE`, render_poster.py): low classes lifted by a rising lightness floor
 (`--min-lightness 40 --min-lightness-step 1.6`), roads as solid streaks (80,82,94, faint casing
