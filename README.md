@@ -11,6 +11,7 @@ Supports multiple cities — all scripts accept `--city <name>`.
 | **Poznan** (`poznan`) | ZTM Poznan via mkuran.pl | Single feed |
 | **Krakow** (`krakow`) | ZTP Kraków bus + tram + regional trains | Multi-feed merge, own QGIS layout (template for the others) |
 | **Gdansk** (`gdansk`) | ZTM Gdansk | City proper (bbox excludes Gdynia/Sopot) |
+| **Tricity** (`tricity`) | ZTM Gdańsk + ZKM Gdynia + polish_trains (SKM, PKM, IC) via mkuran.pl, clipped | Gdańsk + Sopot + Gdynia, 16.0 x 30.2 km rotated portrait frame (coast vertical) |
 | **Berlin** (`berlin`) | VBB GTFS | U/S-Bahn, trams, buses |
 | **Lublin** (`lublin`) | ZDiTM via mkuran.pl + regional trains | Prefixed merge |
 | **Amsterdam** (`amsterdam`) | OVapi all-Netherlands feed, clipped | Dutch header |
@@ -21,7 +22,7 @@ Supports multiple cities — all scripts accept `--city <name>`.
 
 Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in OneDrive on C:).
 
-## Status (2026-10-11)
+## Status (2026-10-12)
 
 **Current product: dark posters, 300 dpi**, all in `png/` (nothing else lives there; previews,
 sketches, comparisons and old variants are in `png/archive/`, see "Directory structure"):
@@ -53,6 +54,13 @@ Key numbers of the new maps (Wed 14.10.2026):
   Leandro Bay (the open Bay would be nicer: needs free legend placement).
 - **Zurich**: 1,970 stops, 243k departures (autumn holidays barely change the timetable);
   isochrones avg 25.6 ha (hills: edge cost x1.088); "zu Fuss" (Swiss spelling).
+- **Tricity** (2026-10-12, preview only: `png/previews/tricity_poster_150.png`, data
+  `_data/tricity/2026_10_12`): Gdańsk + Sopot + Gdynia, frame rotated 22 deg (oblique Mercator
+  gamma 112) so the coast runs up the page; Orunia .. Babie Doły/Cisowa, airport .. Stogi; legend
+  over the Gulf. 2,534 stops, 249k departures (196k bus incl. Gdynia trolleybuses, 46k tram, 7k
+  train); isochrones median 22.7 ha, 0 stops skipped. ZKM Gdynia GTFS:
+  `https://api.zdiz.gdynia.pl/pt/gtfs.zip`. ZTM Gdańsk's feed only covers ~2 weeks ahead
+  (to 24.10 here), so pick a date close to the download. Whole run 23 min. No 300 dpi final yet.
 - **Amsterdam**: city core, 1,587 stops, 183k departures; avg 20.8 ha; Schiphol terminal
   platforms skipped (an older run, before the island walk).
 
