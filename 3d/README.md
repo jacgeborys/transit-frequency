@@ -116,4 +116,4 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   Cycles adopted. Finals 3200x2000: `3d/renders/warsaw_{center,mokotow,zoliborz}.png` (from
   `scenes/warsaw_wide`, rebuilt with `--view zoliborz`). Earlier drafts moved to `3d/renders/drafts/`.
   The user likes the shadows/look. Next: try
-  night/glow vs low-sun looks, height = frequency, Cycles final.
+  a night/glow look, height = frequency, labels/legend overlay, New York.
