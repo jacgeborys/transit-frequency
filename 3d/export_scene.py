@@ -85,17 +85,31 @@ def rings(geom, cx, cy):
     return out
 
 
-def ground_polys(gdf, crop, cx, cy):
+def ground_polys(gdf, crop, cx, cy, tile=250.0):
+    """Dissolved layer, cut into tile x tile m pieces. Dissolving a road network gives one huge
+    polygon with thousands of holes (the blocks), which Blender's polygon fill gets wrong (it
+    filled some holes and painted a sheet over the Vistula); small tiles keep each piece simple."""
+    import shapely
     if gdf is None or gdf.empty:
         return []
     g = gdf.geometry
     g = g[g.geom_type.isin(['Polygon', 'MultiPolygon'])].buffer(0)
-    u = g.unary_union.intersection(crop) if len(g) else None
-    if u is None or u.is_empty:
+    g = g[~g.is_empty]
+    if not len(g):
         return []
-    u = u.simplify(0.3)
-    parts = u.geoms if hasattr(u, 'geoms') else [u]
-    return [r for p in parts if p.geom_type in ('Polygon', 'MultiPolygon') for r in rings(p, cx, cy)]
+    geoms, sidx = g.values.data if hasattr(g.values, 'data') else np.asarray(g.values), g.sindex
+    x0, y0, x1, y1 = crop.bounds
+    out = []
+    for x in np.arange(x0, x1, tile):
+        for y in np.arange(y0, y1, tile):
+            cell = box(x, y, min(x + tile, x1), min(y + tile, y1)).intersection(crop)
+            idx = sidx.query(cell, predicate='intersects')
+            if not len(idx):
+                continue
+            u = shapely.union_all(shapely.intersection(geoms[idx], cell)).simplify(0.3)
+            parts = u.geoms if hasattr(u, 'geoms') else [u]
+            out += [r for p in parts if p.geom_type in ('Polygon', 'MultiPolygon') for r in rings(p, cx, cy)]
+    return out
 
 
 def main():

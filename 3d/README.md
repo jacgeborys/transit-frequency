@@ -84,7 +84,9 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   as the poster: bmy_dark + floor + extend, building shade/saturation). **Big buildings (PKIN, malls,
   stations) are coloured by frequency** (the poster greys them; `--big-grey` for that). Ground layers
   come from the poster's QGIS layer stack (Warsaw: `mapy_warszawy_misc` extract), roads buffered by
-  highway class. Output `3d/scenes/<name>/scene.json` (~3 MB for 3x3 km).
+  highway class. Ground layers are dissolved **per 250 m tile**: a dissolved road network is one
+  polygon with thousands of holes, which Blender's fill (tessellate_polygon) got wrong, painting a grey
+  sheet over the Vistula and many blocks (fixed 2026-10-12). Output `3d/scenes/<name>/scene.json` (~3 MB for 3x3 km).
 - `build_blend.py` (inside Blender): one building mesh with face attributes `col` (linear colour),
   `glow` (emission by class), `cls`; flat ground meshes; low sun (`--sun-azimuth/--sun-elevation`),
   dark sky, camera (`--cam-azimuth/--cam-distance/--cam-height/--lens`), view transform Standard
@@ -115,5 +117,7 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 - 2026-10-12: third view `zoliborz`; `center` reset to draft 2's framing. Sky gradient + horizon haze;
   Cycles adopted. Finals 3200x2000: `3d/renders/warsaw_{center,mokotow,zoliborz}.png` (from
   `scenes/warsaw_wide`, rebuilt with `--view zoliborz`). Earlier drafts moved to `3d/renders/drafts/`.
-  The user likes the shadows/look. Next: try
+  The user likes the shadows/look.
+- 2026-10-12: ground layers tiled (see export) -> the river is visible again and the ground is dark with
+  road lines instead of the earlier grey sheets; finals re-rendered. Next: try
   a night/glow look, height = frequency, labels/legend overlay, New York.
