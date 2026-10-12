@@ -62,9 +62,8 @@ buildings vs low-sun shadows.
 
 ## Conventions (same as the main project)
 
-- Every render/preview is saved as PNG: drafts in `png/previews/` (or `3d/renders/`), finals in
-  `3d/renders/`; diagnostic/comparison images in `png/archive/how_it_was_made/3d/` (the user posts
-  "how it was made" stories).
+- **All 3D output stays in the 3d folder** (user's wish, 2026-10-12): renders in `3d/renders/`,
+  drafts and how-it-was-made steps in `3d/renders/drafts/`; nothing in `png/previews` or `png/archive`.
 - Say which files a command creates/overwrites before running it; commit + push after every change.
 - Heavy renders detached (see the main CLAUDE.md "Running long jobs"); check free RAM first.
 - `.blend` files and scene caches are large: add `3d/scenes/` to `.gitignore`, commit scripts only.
@@ -94,11 +93,14 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   lens halved to match) of a .blend to `3d/views/<name>.json`; `render.py --view <name>` applies it.
   Views stay valid across rebuilds because every export keeps the scene origin at `--center` (PKIN);
   `--bounds xmin,ymin,xmax,ymax` (m from the centre) widens the area without moving the origin.
-  Saved views: `center` (from SSW over Śródmieście), `mokotow` (from above Mokotów looking north).
+  Saved views: `center` (from SSW over Śródmieście; the build defaults, i.e. draft 2's framing, which the
+  user prefers to their own re-aligned camera), `mokotow` (from above Mokotów looking north),
+  `zoliborz` (from Żoliborz looking SE). `build_blend.py --view <name>` starts the .blend with that camera.
 - `build_blend.py` also adds a 40 km ground plane and a distance haze in the sky colour on every
   material (Camera Data distance, `--haze-start 2500 --haze-scale 5000`), so a wide view has no edge.
-- `render.py`: Eevee (default, ~20 s at 1600x1000) or `--engine cycles --samples N` on CUDA. Uses
-  the camera saved in the .blend, so a view chosen by hand in Blender is kept.
+- Sky: gradient from a dark zenith to a slightly lighter navy horizon (= haze colour); Eevee raytracing on.
+- `render.py`: **Cycles on CUDA by default** (1600x1000 ~25 s, 3200x2000 x 128 samples ~2 min; Eevee is
+  no faster on this GPU and lacks the soft occlusion). Uses the .blend's camera unless `--view`.
 
 ## Status
 
@@ -109,5 +111,9 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 - 2026-10-12: the user chose two views in Blender (`3d/views/center.json`, `mokotow.json`) and wants a
   broad perspective, not a cut-out diorama. Scene `warsaw_wide`: `--bounds=-6000,-6500,5000,5500`
   (11 x 12 km, 60k building polygons, 1.26M faces, json 24 MB, export 2.5 min, build 16 s, Eevee
-  render ~25 s) -> `png/previews/3d_warsaw_wide_{center,mokotow}.png`. Next: try
+  render ~25 s).
+- 2026-10-12: third view `zoliborz`; `center` reset to draft 2's framing. Sky gradient + horizon haze;
+  Cycles adopted. Finals 3200x2000: `3d/renders/warsaw_{center,mokotow,zoliborz}.png` (from
+  `scenes/warsaw_wide`, rebuilt with `--view zoliborz`). Earlier drafts moved to `3d/renders/drafts/`.
+  The user likes the shadows/look. Next: try
   night/glow vs low-sun looks, height = frequency, Cycles final.

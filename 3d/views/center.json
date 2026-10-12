@@ -1,15 +1,15 @@
 {
  "location": [
-  -782.88,
-  -2408.6,
-  1517.36
+  -1094.46,
+  -3007.02,
+  1800.0
  ],
  "rotation_euler": [
-  1.10317,
-  -0.0,
-  -0.36984
+  1.05841,
+  0.0,
+  -0.34907
  ],
  "lens": 40.0,
- "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_center\\scene.blend",
- "from": "camera"
+ "source": "build_blend.py defaults (cam azimuth 200, distance 3200, height 1800): the view of draft 2",
+ "from": "defaults"
 }

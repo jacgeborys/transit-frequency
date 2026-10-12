@@ -1,11 +1,12 @@
 """
 Render the camera of 3d/scenes/<name>/scene.blend to PNG. Runs inside Blender:
 
-    blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -- --out png/previews/3d_warsaw.png
-    ... -- --view mokotow --out png/previews/3d_warsaw_mokotow.png      (a view saved by save_view.py)
+    blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -- --out 3d/renders/warsaw.png
+    ... -- --view mokotow --out 3d/renders/warsaw_mokotow.png      (a view saved by save_view.py)
     ... -- --engine cycles --samples 128 --width 3200 --height 2000 --out 3d/renders/warsaw.png
 
-Eevee for drafts (seconds), Cycles on the GPU (CUDA, GTX 1660 Ti) for finals.
+Cycles on the GPU (CUDA, GTX 1660 Ti) by default: 1600x1000 in ~25 s, 3200x2000 at 128 samples
+~2 min; as fast as Eevee here and with soft shadows/occlusion. --engine eevee still works.
 The .blend is not modified (the camera you saved in Blender is used as is).
 """
 import argparse
@@ -31,8 +32,8 @@ def main():
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
-    ap.add_argument('--engine', choices=['eevee', 'cycles'], default='eevee')
-    ap.add_argument('--samples', type=int, default=64)
+    ap.add_argument('--engine', choices=['eevee', 'cycles'], default='cycles')  # same speed on the 1660 Ti, nicer
+    ap.add_argument('--samples', type=int, default=128)
     ap.add_argument('--width', type=int, default=1600)
     ap.add_argument('--height', type=int, default=1000)
     ap.add_argument('--view', help='Use 3d/views/<name>.json (save_view.py) instead of the saved camera')

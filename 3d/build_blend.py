@@ -26,7 +26,8 @@ GROUND_Z = {'base': 0.0, 'green': 0.05, 'forest': 0.06, 'water': 0.08, 'roads': 
 GROUND_COLOUR = {'base': 'background', 'green': 'green', 'forest': 'forest', 'water': 'water',
                  'roads': 'roads', 'railways': 'railways'}
 BASE_RGB = (12, 12, 15)  # ground plane: a touch above the poster's pure black so it reads in 3D
-SKY = (0.004, 0.005, 0.009)  # linear; world colour and haze colour
+SKY = (0.004, 0.005, 0.009)       # linear; zenith colour of the sky
+HORIZON = (0.016, 0.019, 0.032)   # linear; sky at the horizon = haze colour, so far ground melts into it
 
 
 def srgb_to_linear(c):
@@ -168,6 +169,7 @@ def main():
     ap.add_argument('--cam-distance', type=float, default=3200, help='m, horizontal')
     ap.add_argument('--cam-height', type=float, default=1800, help='m')
     ap.add_argument('--lens', type=float, default=40, help='mm')
+    ap.add_argument('--view', help='Start with the camera of 3d/views/<name>.json instead of the --cam-* defaults')
     ap.add_argument('--haze-start', type=float, default=2500, help='m from the camera; no haze closer')
     ap.add_argument('--haze-scale', type=float, default=5000, help='m; 63 %% hazed this far past the start')
     ap.add_argument('--horizon', type=float, default=40000, help='Ground plane size beyond the data, m (0 = none)')
@@ -220,13 +222,26 @@ def main():
 
     # Distance haze in the sky colour on every material
     for m in bpy.data.materials:
-        add_haze(m, args.haze_start, args.haze_scale, SKY)
+        add_haze(m, args.haze_start, args.haze_scale, HORIZON)
 
-    # World: dark blue-grey sky, so the shadow side isn't pure black
+    # World: dark blue sky, a little lighter towards the horizon (gives depth; matches the haze)
     world = bpy.data.worlds.new('world')
     world.use_nodes = True
-    world.node_tree.nodes['Background'].inputs['Color'].default_value = (*SKY, 1)
-    world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
+    wn = world.node_tree
+    bg = wn.nodes['Background']
+    tc = wn.nodes.new('ShaderNodeTexCoord')
+    sep = wn.nodes.new('ShaderNodeSeparateXYZ')
+    rng = wn.nodes.new('ShaderNodeMapRange')
+    rng.inputs['From Min'].default_value, rng.inputs['From Max'].default_value = 0.0, 0.35
+    ramp = wn.nodes.new('ShaderNodeMix')
+    ramp.data_type = 'RGBA'
+    ramp.inputs['A'].default_value = (*HORIZON, 1)
+    ramp.inputs['B'].default_value = (*SKY, 1)
+    wn.links.new(tc.outputs['Generated'], sep.inputs[0])
+    wn.links.new(sep.outputs['Z'], rng.inputs['Value'])
+    wn.links.new(rng.outputs['Result'], ramp.inputs['Factor'])
+    wn.links.new(ramp.outputs['Result'], bg.inputs['Color'])
+    bg.inputs['Strength'].default_value = 1.0
     sc.world = world
 
     # Sun
@@ -249,7 +264,16 @@ def main():
     caz = math.radians(args.cam_azimuth)
     cob.location = (math.sin(caz) * args.cam_distance, math.cos(caz) * args.cam_distance, args.cam_height)
     look_at(cob, (0, 0, 0))
+    if args.view:  # a view saved with save_view.py (3d/views/<name>.json)
+        v = json.loads((HERE / 'views' / f'{args.view}.json').read_text())
+        cob.location, cob.rotation_euler, cam.lens = v['location'], v['rotation_euler'], v['lens']
     sc.camera = cob
+
+    # Eevee: ray-traced reflections/AO where this version has them (drafts look closer to Cycles)
+    if hasattr(sc.eevee, 'use_raytracing'):
+        sc.eevee.use_raytracing = True
+    if hasattr(sc.eevee, 'use_shadows'):
+        sc.eevee.use_shadows = True
 
     # Colour management: keep the poster's sRGB colours as they are (no filmic curve)
     sc.view_settings.view_transform = 'Standard'
