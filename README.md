@@ -24,6 +24,17 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 
 ## Status (2026-10-12)
 
+**2026-10-12: all 9 finals re-rendered at 300 dpi with the unified poster style** (Tricity's style is now
+the default in `STYLE`, render_poster.py): low classes lifted by a rising lightness floor
+(`--min-lightness 40 --min-lightness-step 1.6`), roads as solid streaks (80,82,94, faint casing
+66,68,80 @ 0.06 mm), railways 100,100,112, water 22,39,63; legend swatches = the opaque building
+colours actually drawn (before: QGIS class colours at their own near-transparent alpha, so 1-10
+looked black), legend scaled with the page (sqrt of page area vs Kraków's layout, 0.7-1.8x) and
+always flush in a map corner (bottom-right unless `legend_corner`); scale bar boxes 1 km each;
+north arrow to true north on every map. Batch: `script/rerender_all_300.cmd`. Colour check: L*
+rises monotonically (CVD-safe ordering); 1-10 vs 10-25 nearly identical (dE 4, few buildings);
+the low blue looks brighter than its L* (Helmholtz-Kohlrausch), accepted.
+
 **Current product: dark posters, 300 dpi**, all in `png/` (nothing else lives there; previews,
 sketches, comparisons and old variants are in `png/archive/`, see "Directory structure"):
 
