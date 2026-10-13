@@ -42,7 +42,7 @@ Cambridge, Somerville, Brookline, Charlestown, East Boston/Logan, south to Dorch
 complete (harbour/Charles checked). Stop check: Government Center in a station island (walk fine,
 31.6 ha); **Boston Landing skipped**: its platform paths connect only to `highway=construction`
 ways in OSM (38 departures, left as is). 150 dpi preview `png/previews/boston_poster_150.png`;
-no 300 dpi final yet.
+300 dpi final rendered (2.8 min).
 
 **2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
 (La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
@@ -66,6 +66,7 @@ sketches, comparisons and old variants are in `png/archive/`, see "Directory str
 
 | City | Final | Day | Data folder | Routing fixes |
 |---|---|---|---|---|
+| Boston | `how_many_rides_in_5_mins_boston_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/boston/2026_10_13` | yes |
 | Tricity | `how_many_rides_in_5_mins_tricity_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/tricity/2026_10_12` | yes |
 | New York | `how_many_rides_in_5_mins_newyork_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/newyork/2026_10_11` | yes (+ JFK island walk) |
 | San Francisco | `how_many_rides_in_5_mins_sanfrancisco_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/sanfrancisco/2026_10_11` | yes, + hills |
