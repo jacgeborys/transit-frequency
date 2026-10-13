@@ -155,6 +155,9 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   Ursynów and Wawer: `warsaw_wide` = `--bounds=-7000,-15000,15000,9000 --detail-bounds=-7000,-6500,7000,9000`
   (22 x 24 km, 203k buildings, 3.0M faces, json 102 MB, export ~10 min, build 32 s, 1600x1000 render ~50 s).
   Finals `3d/renders/warsaw_{zoliborz,center,mokotow}.png`.
+- 2026-10-13: Plac Defilad tint fixed (hole splitting, unsimplified coverage, 21.5k pixel gaps filled);
+  finals re-rendered. scene.json is now 358 MB (raster-staircase coverage outlines; simplify them
+  topologically if it ever gets in the way). Drafts pruned to a 13-image how-it-was-made sequence.
 - 2026-10-12: **night look + tilt-shift** (user liked both ideas). Finals `3d/renders/warsaw_night_{zoliborz,
   center,mokotow}.png` (Żoliborz with f/0.001 on PKIN; others without DOF). Drafts `07_night_*`,
   `08_night_tiltshift_f*` in `3d/renders/drafts/`. Next: try
