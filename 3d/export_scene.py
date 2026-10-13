@@ -41,6 +41,7 @@ warnings.filterwarnings('ignore')
 LEVEL_M, DEFAULT_M = 3.2, 9.0
 PARTS_COVER = 0.85          # parent hidden when its parts cover this share of its footprint
 FAR_SIMPLIFY_M = 1.0        # outline simplification outside --detail-bounds
+SMALL_GAP_M2 = 60.0         # coverage holes smaller than this are filled (raster noise)
 ROAD_WIDTH = {  # metres, full width of the drawn strip
     'motorway': 16, 'trunk': 16, 'primary': 13, 'secondary': 11, 'tertiary': 9,
     'motorway_link': 7, 'trunk_link': 7, 'primary_link': 7, 'secondary_link': 7, 'tertiary_link': 7,
@@ -79,9 +80,31 @@ def read(path, crs, bbox_m, layer=None, subset=None):
     return gdf.to_crs(crs)
 
 
+MAX_HOLES = 3  # Blender's polygon fill (tessellate_polygon) leaves polygons with many holes empty
+
+
+def split_holes(p, max_holes=MAX_HOLES):
+    """Halve a polygon (across its longer side) until every piece has <= max_holes holes.
+    A coverage class around PKIN was one polygon with 96 holes and rendered without its tint."""
+    if len(p.interiors) <= max_holes:
+        return [p]
+    x0, y0, x1, y1 = p.bounds
+    halves = (box(x0, y0, (x0 + x1) / 2, y1), box((x0 + x1) / 2, y0, x1, y1)) if x1 - x0 >= y1 - y0 \
+        else (box(x0, y0, x1, (y0 + y1) / 2), box(x0, (y0 + y1) / 2, x1, y1))
+    out = []
+    for h in halves:
+        part = p.intersection(h)
+        for q in (part.geoms if hasattr(part, 'geoms') else [part]):
+            if isinstance(q, Polygon) and not q.is_empty:
+                out += split_holes(q, max_holes)
+    return out
+
+
 def rings(geom, cx, cy):
-    """Polygon/MultiPolygon -> list of polygons, each [exterior, *holes] as [[x, y], ...]."""
+    """Polygon/MultiPolygon -> list of polygons, each [exterior, *holes] as [[x, y], ...]
+    (split so that no piece has more than MAX_HOLES holes)."""
     polys = geom.geoms if isinstance(geom, MultiPolygon) else [geom] if isinstance(geom, Polygon) else []
+    polys = [q for p in polys if not p.is_empty for q in split_holes(p)]
     out = []
     for p in polys:
         if p.is_empty or p.area < 0.05:  # keep columns and small parts
@@ -91,7 +114,7 @@ def rings(geom, cx, cy):
     return out
 
 
-def ground_polys(gdf, crop, cx, cy, tile=250.0):
+def ground_polys(gdf, crop, cx, cy, tile=250.0, simplify=0.3):
     """Dissolved layer, cut into tile x tile m pieces. Dissolving a road network gives one huge
     polygon with thousands of holes (the blocks), which Blender's polygon fill gets wrong (it
     filled some holes and painted a sheet over the Vistula); small tiles keep each piece simple."""
@@ -112,7 +135,9 @@ def ground_polys(gdf, crop, cx, cy, tile=250.0):
             idx = sidx.query(cell, predicate='intersects')
             if not len(idx):
                 continue
-            u = shapely.union_all(shapely.intersection(geoms[idx], cell)).simplify(0.3)
+            u = shapely.union_all(shapely.intersection(geoms[idx], cell))
+            if simplify:  # (not for layers that tile each other: borders would shift apart -> gaps)
+                u = shapely.make_valid(u.simplify(simplify))
             parts = u.geoms if hasattr(u, 'geoms') else [u]
             out += [r for p in parts if p.geom_type in ('Polygon', 'MultiPolygon') for r in rings(p, cx, cy)]
     return out
@@ -270,6 +295,19 @@ def main():
     # 2D coverage tint: the poster's coverage classes (composited colour + alpha), per class
     cov = read(data / 'coverage_map_gates.gpkg', crs, bbox_m)
     attr = 'deduped_trips' if 'deduped_trips' in cov else 'max_trips'
+    # Pixel-sized holes of the barrier-aware raster (the 2D poster blurs them away; in 3D they show
+    # as dark shards): enclosed gaps < SMALL_GAP_M2 take the highest neighbouring value. Larger
+    # gaps (fenced sites) stay.
+    import shapely
+    u = shapely.union_all(cov.geometry.values)
+    holes = [Polygon(r) for q in (u.geoms if hasattr(u, 'geoms') else [u]) for r in q.interiors
+             if Polygon(r).area < SMALL_GAP_M2]
+    if holes:
+        hg = gpd.GeoDataFrame(geometry=holes, crs=crs)
+        j = gpd.sjoin(gpd.GeoDataFrame(geometry=hg.buffer(0.5), crs=crs), cov[[attr, 'geometry']],
+                      predicate='intersects').groupby(level=0)[attr].max()
+        cov = pd.concat([cov[[attr, 'geometry']], hg.assign(**{attr: j}).dropna(subset=[attr])], ignore_index=True)
+        print(f"  coverage: {len(j):,} small gaps filled")
     cov_classes = col['coverage_classes']
     cup = np.array([hi for _, hi, _, _ in cov_classes])
     ck = np.searchsorted(cup, cov[attr].to_numpy(), side='left')
@@ -278,7 +316,7 @@ def main():
     for k, (lo, hi, rgb, alpha) in enumerate(cov_classes):
         sub = cov[cov['k'] == k]
         if len(sub):
-            ground[f'coverage_{k}'] = ground_polys(sub, crop, cx, cy, tile=500.0)
+            ground[f'coverage_{k}'] = ground_polys(sub, crop, cx, cy, tile=500.0, simplify=0)
         coverage_palette.append([*rgb, round(alpha, 4)])
 
     out_dir = HERE / 'scenes' / args.name

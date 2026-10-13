@@ -92,6 +92,12 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   with thousands of holes that Blender's fill got wrong: grey sheet over the Vistula). **Coverage tint**:
   `coverage_map_gates.gpkg` per class as `coverage_<k>` layers with the poster's composited colour and
   alpha (`poster_colours()['coverage_classes']`). Output `3d/scenes/<name>/scene.json`.
+  **Blender's fill (`tessellate_polygon`) silently leaves polygons with many holes empty**: every polygon
+  is halved until it has <= 3 holes (`split_holes`); the coverage class around PKIN had 96 holes and
+  Plac Defilad rendered untinted. Coverage is not simplified (classes tile each other; separately
+  simplified borders open slivers), and enclosed coverage gaps < 60 m2 (pixel holes of the barrier
+  raster, blurred away on the 2D poster) take the highest neighbouring value. Real gaps stay (the
+  fenced construction site north of Plac Defilad).
   Gotcha: build helper GeoDataFrames from arrays (`.values`); a dict of Index + a geometry Series are
   aligned differently (by position vs label) and silently mismatch rows.
 - `build_blend.py` (inside Blender): one building mesh with face attributes `col` (linear colour),
