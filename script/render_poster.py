@@ -63,6 +63,7 @@ POSTER = {
     'sanfrancisco': {'city': 'SAN FRANCISCO', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'manhattan': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'newyork': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
+    'boston': {'city': 'BOSTON', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }
 
 

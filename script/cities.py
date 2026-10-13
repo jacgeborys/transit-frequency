@@ -414,6 +414,30 @@ CITIES['paris'] = {
 }
 
 
+# Boston (2026-10-13): Boston core + Cambridge, Somerville, Brookline, Charlestown, East Boston /
+# Logan, south to Dorchester / Jamaica Plain. 15.6 x 14.8 km.
+CITIES['boston'] = {
+    'name': 'Boston',
+    # Covers the render frame below + 400 m
+    'bbox': {'south': 42.277, 'west': -71.186, 'north': 42.423, 'east': -70.980},
+    'crs_metric': 'EPSG:32619',  # UTM 19N (metres); MA State Plane would also do
+    'gtfs': {
+        # MBTA: subway, light rail, bus, commuter rail, ferries (route_type on every route)
+        'mbta': 'https://cdn.mbta.com/MBTA_GTFS.zip',
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,
+    'has_frequencies': False,
+    'osm_pbf': ['north-america/us/massachusetts'],
+    'network_tiles': 7,
+    'template': 'krakow',
+    # m in UTM 19N: 71.175-70.990 W, 42.285-42.415 N
+    'render_frame': (320670, 4683340, 336270, 4698150),
+    'legend_corner': 'bottom-right',  # over Dorchester Bay / Quincy Bay
+}
+
+
 def get_city(name: str) -> dict:
     """Get city config by name (case-insensitive). Raises KeyError if not found."""
     key = name.lower().strip()
