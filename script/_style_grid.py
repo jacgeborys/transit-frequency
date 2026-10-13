@@ -113,6 +113,17 @@ WOW2_VARIANTS = [
 ]
 SETS['wow2'] = (W08, WOW2_VARIANTS)
 
+# "Wow 3" (2026-10-13): wow2's 08 (26 classes, land 16, black roads, saturation 1.35) with the
+# walk-area fill back (the visible trace of the path/fence analysis), at several strengths
+W3 = {**W08, **FINE_L, **GREY_LAND('16,16,19'), '--building-saturation': '1.35'}
+WOW3_VARIANTS = [
+    ('01 no fill (wow2 08)', {}),
+    ('02 fill 0.20', {'--coverage-fade': '0.20'}),
+    ('03 fill 0.30', {'--coverage-fade': '0.30'}),
+    ('04 fill 0.42 (old pale)', {'--coverage-fade': '0.42'}),
+]
+SETS['wow3'] = (W3, WOW3_VARIANTS)
+
 
 def main():
     ap = argparse.ArgumentParser()
