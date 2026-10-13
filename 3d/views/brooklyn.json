@@ -1,0 +1,21 @@
+{
+ "location": [
+  2511.9,
+  -5977.1,
+  3500
+ ],
+ "rotation_euler": [
+  1.1815,
+  0.0,
+  0.16078
+ ],
+ "lens": 35,
+ "source": "computed (Prospect Park -> Brooklyn Bridge)",
+ "from": "defaults",
+ "note": "steep (map seen from above): over S Prospect Park, 3.5 km up, aimed at the East Village (Manhattan centred)",
+ "far_blur": [
+  11000,
+  22000,
+  0.003
+ ]
+}

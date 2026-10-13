@@ -1,0 +1,21 @@
+{
+ "location": [
+  2511.9,
+  -5977.1,
+  1500
+ ],
+ "rotation_euler": [
+  1.34822,
+  0.0,
+  0.389
+ ],
+ "lens": 35,
+ "source": "computed (Prospect Park -> Brooklyn Bridge)",
+ "from": "defaults",
+ "note": "classic skyline angle: same spot, 1.5 km up",
+ "far_blur": [
+  11000,
+  22000,
+  0.003
+ ]
+}

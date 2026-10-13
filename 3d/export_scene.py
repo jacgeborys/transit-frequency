@@ -15,6 +15,9 @@ A building is drawn whole unless its parts cover >= 85 % of it (then only the pa
 the frequency of the building they belong to, so a landmark is one colour. (The housing-price
 project's buildings_3d layer, used at first, drops every building that has any part: Warsaw
 Spire kept only its crown, Politechnika's main building vanished.)
+--buildings <gpkg>: another buildings file (New York: 3d/osm_buildings_3d.py output, since that
+basemap kept no height tags). --context-buildings <gpkg>: neutral dark silhouettes without frequency
+(New Jersey: outside the analysis, but a void behind Manhattan looks wrong); palette[context_class].
 Ground also gets the 2D coverage tint ('coverage_<k>' layers with the poster's composited
 class colour + alpha, from coverage_map_gates.gpkg).
 """
@@ -41,6 +44,7 @@ warnings.filterwarnings('ignore')
 LEVEL_M, DEFAULT_M = 3.2, 9.0
 PARTS_COVER = 0.85          # parent hidden when its parts cover this share of its footprint
 FAR_SIMPLIFY_M = 1.0        # outline simplification outside --detail-bounds
+CONTEXT_RGB = (36, 37, 42)  # --context-buildings: darker than 'not covered', reads as background
 SMALL_GAP_M2 = 60.0         # coverage holes smaller than this are filled (raster noise)
 ROAD_WIDTH = {  # metres, full width of the drawn strip
     'motorway': 16, 'trunk': 16, 'primary': 13, 'secondary': 11, 'tertiary': 9,
@@ -110,7 +114,7 @@ def rings(geom, cx, cy):
         if p.is_empty or p.area < 0.05:  # keep columns and small parts
             continue
         rs = [p.exterior] + list(p.interiors)
-        out.append([[[round(x - cx, 2), round(y - cy, 2)] for x, y in r.coords[:-1]] for r in rs])
+        out.append([[[round(x - cx, 1), round(y - cy, 1)] for x, y in r.coords[:-1]] for r in rs])
     return out
 
 
@@ -153,6 +157,8 @@ def main():
                                      'the centre stays the scene origin, so saved views still fit')
     ap.add_argument('--data', help='Data folder with buildings_gates.gpkg (default: latest)')
     ap.add_argument('--name', required=True)
+    ap.add_argument('--buildings', help="Buildings file (default: the city's osm_basemap buildings.gpkg)")
+    ap.add_argument('--context-buildings', help='Buildings drawn as neutral silhouettes (no frequency)')
     ap.add_argument('--detail-bounds', help='xmin,ymin,xmax,ymax (m from the centre): full detail inside; '
                                             'outside, outlines are simplified (far background)')
     ap.add_argument('--big-grey', action='store_true',
@@ -170,8 +176,10 @@ def main():
         bbox_m = (cx + x0, cy + y0, cx + x1, cy + y1)
         args.shape = 'square'
     crop = box(*bbox_m) if args.shape == 'square' else Point(cx, cy).buffer(r, 128)
-    data = Path(args.data) if args.data else sorted(
-        d for d in city['data_dir'].iterdir() if (d / 'buildings_gates.gpkg').exists())[-1]
+    import re
+    data = Path(args.data) if args.data else sorted(  # plain date folders only (not *_previous, *_xl_bbox)
+        d for d in city['data_dir'].iterdir()
+        if re.fullmatch(r'\d{4}_\d{2}_\d{2}', d.name) and (d / 'buildings_gates.gpkg').exists())[-1]
     print(f"{city['name']}: {(bbox_m[2] - bbox_m[0]) / 1000:g} x {(bbox_m[3] - bbox_m[1]) / 1000:g} km "
           f"{args.shape} around {lat}, {lon}; data {data.name}")
 
@@ -182,7 +190,7 @@ def main():
     underground = {int(v) for v in ug.read_text().split()} if ug.exists() else set()
 
     # Geometry + heights (OSM basemap, buildings and building:part)
-    b = read(city['osm_dir'] / 'buildings.gpkg', crs, bbox_m)
+    b = read(Path(args.buildings) if args.buildings else city['osm_dir'] / 'buildings.gpkg', crs, bbox_m)
     b['osm_id'] = b['osm_id'].astype('int64')
     b = b[~b['osm_id'].isin(underground) & b.geometry.notna()]
     b = b[b.geometry.geom_type.isin(['Polygon', 'MultiPolygon'])].copy()
@@ -246,6 +254,17 @@ def main():
           f"{orphan.sum():,} parts with no parent or an uncoloured one); no frequency: {b['trips'].isna().sum():,}")
     b['trips'] = b['trips'].fillna(0).astype(int)
     b['big'] = b['big'].fillna(0).astype(bool)
+    if args.context_buildings:  # neutral silhouettes (e.g. New Jersey): own heights, no frequency
+        ctx = read(Path(args.context_buildings), crs, bbox_m)
+        ctx = ctx[ctx.geometry.geom_type.isin(['Polygon', 'MultiPolygon'])]
+        ctx = ctx[ctx.geometry.representative_point().within(crop)
+                  & ~ctx['osm_id'].astype('int64').isin(b['osm_id'])]  # extracts overlap at the edges
+        num_c = lambda c: pd.to_numeric(ctx[c], errors='coerce') if c in ctx else pd.Series(np.nan, ctx.index)  # noqa: E731
+        ctx = ctx.assign(z1=num_c('height').fillna(num_c('building_levels') * LEVEL_M).fillna(DEFAULT_M),
+                         z0=num_c('min_height').fillna(0.0), trips=-1, big=False)
+        ctx = ctx[ctx['building_part'].isna()] if 'building_part' in ctx else ctx
+        b = pd.concat([b, ctx[['osm_id', 'z0', 'z1', 'trips', 'big', 'geometry']]], ignore_index=True)
+        print(f"  context silhouettes: {len(ctx):,}")
     if args.detail_bounds:  # far background: simpler outlines
         d0, d1, d2, d3 = (float(v) for v in args.detail_bounds.split(','))
         inner = box(cx + d0, cy + d1, cx + d2, cy + d3)
@@ -256,11 +275,14 @@ def main():
     col = poster_colours(city['key'])
     classes = col['classes']
     palette = [col['uncovered']] + [c for _, _, c in classes]
+    context_class = len(palette)
+    palette.append(list(CONTEXT_RGB))
     uppers = np.array([hi for _, hi, _ in classes])
     lowers = np.array([lo for lo, _, _ in classes])
     t = b['trips'].to_numpy()
     cls = np.searchsorted(uppers, t, side='left') + 1          # lower < t <= upper
     cls = np.where((t > lowers[0]) & ~(args.big_grey & b['big'].to_numpy()), np.minimum(cls, len(classes)), 0)
+    cls = np.where(t < 0, context_class, cls)
 
     buildings = []
     for geom, z0, z1, c, tr in zip(b.geometry, b['z0'], b['z1'], cls, t):
@@ -323,7 +345,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     scene = {'city': city['key'], 'crs': crs, 'center_lonlat': [lon, lat], 'center_xy': [cx, cy],
              'radius': r, 'bbox_local': [round(v, 1) for v in (bbox_m[0] - cx, bbox_m[1] - cy, bbox_m[2] - cx, bbox_m[3] - cy)], 'shape': args.shape, 'data': str(data),
-             'palette': palette, 'class_labels': ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes],
+             'palette': palette, 'context_class': context_class, 'class_labels': ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes] + ['context'],
              'colours': {k: v for k, v in col.items() if k not in ('classes', 'coverage_classes')},
              'coverage_palette': coverage_palette, 'buildings': buildings, 'ground': ground}
     out = out_dir / 'scene.json'

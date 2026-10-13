@@ -244,11 +244,13 @@ def main():
         add_prism(verts, faces, fcls, b['rings'], b['z0'], b['z1'], b['c'])
     ob = make_mesh('buildings', verts, faces)
     me = ob.data
-    n_cls = len(palette) - 1
+    ctx = scene_data.get('context_class')  # neutral silhouettes: last palette entry, no glow
+    n_cls = (ctx if ctx is not None else len(palette)) - 1
     cols = [(*lin(palette[c]), 1.0) for c in range(len(palette))]
     # Glow rises with the class: none for uncovered, faint for the lowest, full at the top
     fl, pw = look['glow_floor'], look['glow_power']
     glows = [0.0] + [fl + (1 - fl) * (k / max(1, n_cls - 1)) ** pw for k in range(n_cls)]
+    glows += [0.0] * (len(palette) - len(glows))
     a = me.color_attributes.new('col', 'FLOAT_COLOR', 'FACE')
     a.data.foreach_set('color', [v for c in fcls for v in cols[c]])
     g = me.attributes.new('glow', 'FLOAT', 'FACE')

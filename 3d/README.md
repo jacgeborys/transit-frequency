@@ -131,6 +131,30 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 - `render.py`: **Cycles on CUDA by default** (1600x1000 ~25 s, 3200x2000 x 128 samples ~2 min; Eevee is
   no faster on this GPU and lacks the soft occlusion). Uses the .blend's camera unless `--view`.
 
+## New York (started 2026-10-13)
+
+```
+python 3d/osm_buildings_3d.py --pbf D:/QGIS/osm_basemap/pbf/newyork_new-york.osm.pbf --out D:/QGIS/osm_basemap/newyork/buildings_3d.gpkg
+python 3d/osm_buildings_3d.py --pbf D:/QGIS/osm_basemap/pbf/newyork_new-jersey.osm.pbf --out D:/QGIS/osm_basemap/newyork/buildings_3d_nj.gpkg
+python 3d/export_scene.py --city newyork --center 40.7061,-73.9969 --bounds=-5500,-12000,10000,10500     --detail-bounds=-3500,-6500,5000,6000 --buildings D:/QGIS/osm_basemap/newyork/buildings_3d.gpkg     --context-buildings D:/QGIS/osm_basemap/newyork/buildings_3d_nj.gpkg --name nyc_brooklyn
+blender --background --factory-startup --python 3d/build_blend.py -- --name nyc_brooklyn --view brooklyn
+```
+- The NYC basemap (Geofabrik route) kept only osm_id + building, so `osm_buildings_3d.py` (pyosmium 4.3)
+  re-reads buildings + parts with height tags from the city's .pbf: 1.03M features, **height 89 %**
+  (NYC building import), ids match `buildings_gates` 99.6 % (way id / relation id, as Overpass).
+  4 min for the 83 MB pbf. Brooklyn Tower = 324 m.
+- **New Jersey** is outside the analysis: `--context-buildings` draws it as dark neutral silhouettes
+  (`CONTEXT_RGB` 36,37,42, palette[`context_class`], no glow), so there's no void behind Manhattan.
+  NJ OSM has almost no heights (0 % height, 2 % levels): Jersey City's towers are 9 m blocks, fine
+  as hazed background.
+- Scene origin = Brooklyn Bridge. 15.5 x 22.5 km (Jersey City .. western Queens, south of Prospect
+  Park .. Central Park): 468k building polygons (40k NJ), 4.26M faces, json 118 MB, export ~10 min,
+  build 39 s, 1600x1000 Cycles ~1 min.
+- Views: `brooklyn` (user wants it seen "more vertically": over S Prospect Park, 3.5 km up, 68 deg
+  from straight down, aimed at the East Village so Manhattan's spine is centred), `brooklyn_low`
+  (1.5 km up, classic skyline angle). Both with far blur 11-22 km.
+- Data folder default now = latest plain `YYYY_MM_DD` folder (it had picked `2026_10_11_previous`).
+
 ## Status
 
 - 2026-10-12: folder + plan created.
@@ -155,6 +179,8 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   Ursynów and Wawer: `warsaw_wide` = `--bounds=-7000,-15000,15000,9000 --detail-bounds=-7000,-6500,7000,9000`
   (22 x 24 km, 203k buildings, 3.0M faces, json 102 MB, export ~10 min, build 32 s, 1600x1000 render ~50 s).
   Finals `3d/renders/warsaw_{zoliborz,center,mokotow}.png`.
+- 2026-10-13: **New York** started: drafts `3d/renders/drafts/nyc_01_*`, `nyc_02_brooklyn_centred.png`;
+  user to fine-tune the camera in `3d/scenes/nyc_brooklyn/scene.blend`.
 - 2026-10-13: Plac Defilad tint fixed (hole splitting, unsimplified coverage, 21.5k pixel gaps filled);
   finals re-rendered. scene.json is now 358 MB (raster-staircase coverage outlines; simplify them
   topologically if it ever gets in the way). Drafts pruned to a 13-image how-it-was-made sequence.
