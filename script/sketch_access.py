@@ -77,6 +77,11 @@ def main():
                         help='all = public paths green + private orange; streets = pale streets only; none')
     parser.add_argument('--building-status', action='store_true',
                         help='Fill buildings by result: reached (dark), residents-only (mid), not reached (hatch)')
+    parser.add_argument('--flat-outline', action='store_true',
+                        help='Hill cities: also outline the walk area as if the city were flat (dashed)')
+    parser.add_argument('--steps', action='store_true', help='Draw stairs (highway=steps)')
+    parser.add_argument('--dpi', type=int, default=90)
+    parser.add_argument('--no-legend', action='store_true', help='No legend box (for panels)')
     parser.add_argument('--cached', action='store_true',
                         help='Reuse the isochrones the last --recompute of these stops saved')
     parser.add_argument('data_folder', nargs='?')
@@ -107,11 +112,17 @@ def main():
     if args.cached:
         pub = gpd.read_file(cache, layer='public').to_crs(crs)
         res = gpd.read_file(cache, layer='residents').to_crs(crs)
+        import fiona
+        flat = gpd.read_file(cache, layer='flat').to_crs(crs) if 'flat' in fiona.listlayers(cache) else None
     elif args.recompute:
         pub, res = recompute(city, st, stops)
         cache.parent.mkdir(exist_ok=True)
         pub.to_file(cache, layer='public', driver='GPKG')
         (res if len(res) else pub.iloc[0:0]).to_file(cache, layer='residents', driver='GPKG')
+        flat = None
+        if args.flat_outline:
+            flat, _ = recompute({**city, '_flat': True}, st, stops)
+            flat.to_file(cache, layer='flat', driver='GPKG')
     else:
         pub = gpd.read_file(data_dir / 'isochrones_gates.gpkg').to_crs(crs)
         pub = pub[pub.stop_id.isin(ids)]
@@ -127,7 +138,7 @@ def main():
         res_only = res.geometry.unary_union
         if pub_u is not None:
             res_only = res_only.difference(pub_u)
-        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#ebe4f7' if args.building_status else '#f8cfe0')
+        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f0c8e6' if args.building_status else '#f8cfe0')
     if pub_u is not None:
         gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#c6b6ea' if args.building_status else '#d96b97')
     plt.rcParams['hatch.linewidth'] = 0.6
@@ -145,7 +156,7 @@ def main():
     bld.boundary.plot(ax=ax, color='#7a7a7a', lw=0.5)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
-        fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#263238', lw=1.0)
+        fen.boundary.where(fen.geom_type.isin(['Polygon', 'MultiPolygon']), fen.geometry).plot(ax=ax, color='#263238', lw=1.0)
     pw = gpd.read_file(osm / 'private_ways.gpkg', bbox=b4).to_crs(crs)  # all minor ways (footways, service, ...)
     is_priv = pw.osm_id.astype('int64').isin(private_way_ids(osm))
     priv = pw[is_priv]
@@ -164,15 +175,21 @@ def main():
     closed = gt[gt.osm_id.astype('int64').isin(closed_gate_ids(osm, crs))]
     opened = gt[~gt.index.isin(closed.index)]
     if len(opened):
-        opened.plot(ax=ax, color='white', edgecolor='#263238', linewidth=1.6, marker='o', markersize=34, zorder=4)
+        opened.plot(ax=ax, color='#263238', marker='o', markersize=14, zorder=4)
     if len(closed):
-        closed.plot(ax=ax, color='#e53935', edgecolor='white', linewidth=1.0, marker='s', markersize=30, zorder=4)
+        closed.plot(ax=ax, color='#e53935', marker='s', markersize=16, zorder=4)
     if args.highlight:
         hl = gpd.read_file(args.highlight, bbox=b4).to_crs(crs)
         if len(hl):
             hl.plot(ax=ax, facecolor='none', edgecolor='#1565c0', hatch='///', lw=1.2, zorder=4)
-    stops.plot(ax=ax, color='#ffd23f', edgecolor='#1a1a2e', linewidth=1.4, markersize=150, marker='o', zorder=5)
-    stops.plot(ax=ax, color='#1a1a2e', markersize=16, marker='o', zorder=6)
+    if args.steps:
+        stp = pw[pw.highway == 'steps']
+        if len(stp):
+            stp.plot(ax=ax, color='#1a1a2e', lw=2.4, linestyle=(0, (0.6, 0.6)), zorder=3)
+    if 'flat' in locals() and flat is not None and len(flat):
+        gpd.GeoSeries([flat.geometry.unary_union.boundary], crs=crs).plot(
+            ax=ax, color='#1a1a2e', lw=1.3, linestyle=(0, (5, 3)), zorder=3.5)
+    stops.plot(ax=ax, color='#f5b700', markersize=110, marker='o', zorder=5)
     ax.set_xlim(bb[0], bb[2])
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
@@ -181,7 +198,7 @@ def main():
     from matplotlib.patches import Patch
     bs = args.building_status
     handles = [Patch(color='#c6b6ea' if bs else '#d96b97', label='5-min walk, public'),
-               Patch(color='#ebe4f7' if bs else '#f8cfe0', label='5-min walk, residents only')]
+               Patch(color='#f0c8e6' if bs else '#f8cfe0', label='5-min walk, residents only')]
     if bs:
         handles += [Patch(color='#5b2c8f', label='building reached'),
                     Patch(facecolor='white', edgecolor='#a8a8a8', hatch='//////', label='building not reached')]
@@ -189,12 +206,17 @@ def main():
         handles += [Line2D([], [], color='#2e9d4a', lw=1.5, label='public path'),
                     Line2D([], [], color='orange', lw=2, label='private way')]
     handles += [Line2D([], [], color='#263238', lw=1.2, label='fence / wall'),
-                Line2D([], [], ls='', marker='s', ms=7, mfc='#e53935', mec='white', label='closed gate'),
-                Line2D([], [], ls='', marker='o', ms=7, mfc='white', mec='#263238', mew=1.6, label='open gate'),
-                Line2D([], [], ls='', marker='o', ms=11, mfc='#ffd23f', mec='#1a1a2e', mew=1.4, label='stop')]
+                Line2D([], [], ls='', marker='s', ms=5, mfc='#e53935', mec='#e53935', label='closed gate'),
+                Line2D([], [], ls='', marker='o', ms=5, mfc='#263238', mec='#263238', label='open gate'),
+                Line2D([], [], ls='', marker='o', ms=10, mfc='#f5b700', mec='#f5b700', label='stop')]
+    if args.steps:
+        handles.append(Line2D([], [], color='#1a1a2e', lw=2.4, ls=(0, (0.6, 0.6)), label='stairs'))
+    if args.flat_outline:
+        handles.append(Line2D([], [], color='#1a1a2e', lw=1.3, ls=(0, (5, 3)), label='5-min walk if it were flat'))
     if args.highlight:
         handles.append(Patch(facecolor='none', edgecolor='#1565c0', hatch='///', label='highlighted'))
-    ax.legend(handles=handles, loc='lower right', fontsize=9, framealpha=0.93, edgecolor='#cccccc')
+    if not args.no_legend:
+        ax.legend(handles=handles, loc='lower right', fontsize=9, framealpha=0.93, edgecolor='#cccccc')
     ax.set_title(f'{name} ({city["name"]})', fontsize=13, loc='left')
     import unicodedata
     ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()
@@ -206,7 +228,7 @@ def main():
     from datetime import datetime
     fd, tmp = tempfile.mkstemp(suffix='.png')
     os.close(fd)
-    fig.savefig(tmp, dpi=90, bbox_inches='tight')
+    fig.savefig(tmp, dpi=args.dpi, bbox_inches='tight')
     for _ in range(6):
         try:
             shutil.copyfile(tmp, out)
