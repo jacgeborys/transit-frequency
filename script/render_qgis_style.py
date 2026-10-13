@@ -1087,6 +1087,9 @@ def main():
                         help="Text, legend frame and map frame colour (dark mode), e.g. '230,230,235'")
     parser.add_argument('--bg-rgb', default=None,
                         help="Map background (land) RGB instead of the layout's, e.g. '240,240,240'")
+    parser.add_argument('--roads-under-buildings', action='store_true',
+                        help='With --buildings: draw the coloured buildings after roads and railways '
+                             '(streets no longer paint over footprints)')
     parser.add_argument('--road-edge-mm', type=float, default=0,
                         help='Thin opaque white lines along both sides of main roads (tertiary and above), '
                              'width in mm (e.g. 0.1); no caps across road ends')
@@ -1270,6 +1273,55 @@ def main():
     if bld is not None and args.building_outline_mm > 0:
         outline_geoms.append(bld.geometry.to_numpy())
 
+    def draw_coloured_buildings(cov_gdf, layer):
+        # Buildings carry the colour: best frequency per small building, big ones grey
+        br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)
+        for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
+                              (bld[~bld['big'] & bld['residents_only']],
+                               RESIDENTS_ALPHA + 0.15 if args.residents else 1.0)]:
+            if len(subset):
+                b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
+                b_rgba[..., 3] *= alpha
+                blend(canvas, b_rgba, 'normal')
+                del b_rgba
+        big = bld[bld['big']]
+        if len(big):
+            # Base: the uncovered building colour
+            b_rgba = render_layer_rgba(big, big_building_renderer(args.uncovered_rgb or BIG_BUILDING_RGB),
+                                       extent, map_px, dpi)
+            blend(canvas, b_rgba, 'normal')
+            del b_rgba
+            # The isochrones enter big buildings (10 m, plus indoor walkways) but never
+            # cross them: show that actual coverage inside the footprint, building-strength.
+            # With --restricted-buildings, residents-only coverage first (stadium grounds,
+            # gated campuses), the public coverage on top where it reaches
+            sources = [cov_gdf]
+            res_file = coverage.with_name(coverage.stem + '_residents' + coverage.suffix)
+            if args.restricted_buildings and res_file.exists():
+                res_cov = read_cached(res_file, map_crs)
+                res_cov = res_cov[res_cov.intersects(shapely.box(*extent))]
+                sources.insert(0, res_cov)
+            # OSM footprints can be invalid (self-touching rings); GEOS refuses those
+            big_geoms = shapely.make_valid(big.geometry.to_numpy())
+            for cov in sources:
+                bi, ci = cov.sindex.query(big.geometry, predicate='intersects')
+                if not len(bi):
+                    continue
+                cov_geoms = cov.geometry.to_numpy()[ci]
+                cov_geoms = np.where(shapely.is_valid(cov_geoms), cov_geoms, shapely.make_valid(cov_geoms))
+                inside = gpd.GeoDataFrame(
+                    {'max_trips': cov['deduped_trips'].to_numpy()[ci]},
+                    geometry=shapely.intersection(cov_geoms, big_geoms[bi]),
+                    crs=cov.crs)
+                inside = inside[~inside.geometry.is_empty]
+                b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
+                blend(canvas, b_rgba, 'normal')
+                del b_rgba
+
+    # --roads-under-buildings: coloured buildings wait for the roads (and railways, water)
+    has_roads = any(l['path'].stem == 'roads' for l in stack)
+    pending_cov = None
+
     # Composite bottom-up
     bg = parse_color(','.join(map_item.find('BackgroundColor').get(k)
                               for k in ('red', 'green', 'blue', 'alpha')))
@@ -1347,49 +1399,13 @@ def main():
                                           tuple(int(v) / 255 for v in args.road_edge_rgb.split(','))),
                   'normal')
         if bld is not None and layer['path'] == coverage:
-            # Buildings carry the colour: best frequency per small building, big ones grey
-            br = building_renderer(layer['renderer'], args.building_shade, args.building_saturation)
-            for subset, alpha in [(bld[~bld['big'] & ~bld['residents_only']], 1.0),
-                                  (bld[~bld['big'] & bld['residents_only']],
-                                   RESIDENTS_ALPHA + 0.15 if args.residents else 1.0)]:
-                if len(subset):
-                    b_rgba = render_layer_rgba(subset, br, extent, map_px, dpi)
-                    b_rgba[..., 3] *= alpha
-                    blend(canvas, b_rgba, 'normal')
-                    del b_rgba
-            big = bld[bld['big']]
-            if len(big):
-                # Base: the uncovered building colour
-                b_rgba = render_layer_rgba(big, big_building_renderer(args.uncovered_rgb or BIG_BUILDING_RGB),
-                                           extent, map_px, dpi)
-                blend(canvas, b_rgba, 'normal')
-                del b_rgba
-                # The isochrones enter big buildings (10 m, plus indoor walkways) but never
-                # cross them: show that actual coverage inside the footprint, building-strength.
-                # With --restricted-buildings, residents-only coverage first (stadium grounds,
-                # gated campuses), the public coverage on top where it reaches
-                sources = [gdf]
-                res_file = coverage.with_name(coverage.stem + '_residents' + coverage.suffix)
-                if args.restricted_buildings and res_file.exists():
-                    res_cov = read_cached(res_file, map_crs)
-                    res_cov = res_cov[res_cov.intersects(shapely.box(*extent))]
-                    sources.insert(0, res_cov)
-                # OSM footprints can be invalid (self-touching rings); GEOS refuses those
-                big_geoms = shapely.make_valid(big.geometry.to_numpy())
-                for cov in sources:
-                    bi, ci = cov.sindex.query(big.geometry, predicate='intersects')
-                    if not len(bi):
-                        continue
-                    cov_geoms = cov.geometry.to_numpy()[ci]
-                    cov_geoms = np.where(shapely.is_valid(cov_geoms), cov_geoms, shapely.make_valid(cov_geoms))
-                    inside = gpd.GeoDataFrame(
-                        {'max_trips': cov['deduped_trips'].to_numpy()[ci]},
-                        geometry=shapely.intersection(cov_geoms, big_geoms[bi]),
-                        crs=cov.crs)
-                    inside = inside[~inside.geometry.is_empty]
-                    b_rgba = render_layer_rgba(inside, br, extent, map_px, dpi)
-                    blend(canvas, b_rgba, 'normal')
-                    del b_rgba
+            if args.roads_under_buildings and has_roads:
+                pending_cov = (gdf, layer)   # drawn after the roads layer
+            else:
+                draw_coloured_buildings(gdf, layer)
+        if pending_cov is not None and layer['path'].stem == 'roads':
+            draw_coloured_buildings(*pending_cov)
+            pending_cov = None
 
     if outline_geoms:
         # Outer halo: a thin ring just outside every footprint, fills stay untouched

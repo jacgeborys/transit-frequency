@@ -42,7 +42,9 @@ Cambridge, Somerville, Brookline, Charlestown, East Boston/Logan, south to Dorch
 complete (harbour/Charles checked). Stop check: Government Center in a station island (walk fine,
 31.6 ha); **Boston Landing skipped**: its platform paths connect only to `highway=construction`
 ways in OSM (38 departures, left as is). 150 dpi preview `png/previews/boston_poster_150.png`;
-300 dpi final rendered (2.8 min).
+300 dpi final rendered (2.8 min). Streets under the buildings (`--roads-under-buildings`, render_qgis_style.py:
+coloured buildings drawn after roads/railways instead of with the coverage; Boston only so far,
+set per city via `extra` in POSTER). Comparison: `png/archive/how_it_was_made/comparisons/boston_roads_under_buildings.png`.
 
 **2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
 (La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
