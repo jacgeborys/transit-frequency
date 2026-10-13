@@ -87,6 +87,32 @@ WOW_VARIANTS = [
 ]
 SETS = {'light': (BASE, VARIANTS), 'dark': (DARK_BASE, DARK_VARIANTS), 'wow': (WOW_BASE, WOW_VARIANTS)}
 
+# "Wow 2" (2026-10-13): user liked 08 but wants MORE classes, a land a step above black with
+# pitch-black roads, versions without roads, and a slightly adjusted colour scale
+FINE = '1,10,25,40,60,80,100,125,150,200,250,300,375,450,550,650,800,1000,1250,1500,1800,2200,2800,3500,4500,6000'
+W08 = {**WOW_BASE, **SCHWARZ, '--uncovered-rgb': '34,34,38',
+       '--recolor': ['water=14,24,40', 'buildings=34,34,38', 'roads=0,0,0']}
+NOROADS = {}                                   # SCHWARZ hides roads already
+GREY_LAND = lambda rgb: {'--bg-rgb': rgb, '--hide': [g for g in GROUND if g != 'roads']}
+FINE_L = {'--breaks': FINE, '--min-lightness': '40', '--min-lightness-step': '1.2'}
+WOW2_VARIANTS = [
+    ('01 08 as is (19 classes, no roads)', {}),
+    ('02 26 classes, no roads', {**FINE_L}),
+    ('03 26 cl., land 16, black roads', {**FINE_L, **GREY_LAND('16,16,19')}),
+    ('04 26 cl., land 24, black roads', {**FINE_L, **GREY_LAND('24,24,28')}),
+    ('05 26 cl., land 32, black roads', {**FINE_L, **GREY_LAND('32,32,37'), '--uncovered-rgb': '48,48,54',
+                                         '--recolor': ['water=14,24,40', 'buildings=48,48,54', 'roads=0,0,0']}),
+    ('06 = 03, top stays gold (no cream)', {**FINE_L, **GREY_LAND('16,16,19'), '--palette-extend': '#ffd23f,#ffe680'}),
+    ('07 = 03, deeper lows (floor 30)', {**FINE_L, **GREY_LAND('16,16,19'), '--min-lightness': '30', '--min-lightness-step': '1.6'}),
+    ('08 = 03, saturation 1.35', {**FINE_L, **GREY_LAND('16,16,19'), '--building-saturation': '1.35'}),
+    ('09 = 03, plasma', {**FINE_L, **GREY_LAND('16,16,19'), '--palette': 'plasma_dark', '--palette-extend': '#fcffa4'}),
+    ('10 = 03, white-hot top', {**FINE_L, **GREY_LAND('16,16,19'), '--palette-extend': '#fff38a,#ffffff'}),
+    ('11 = 04, gold top + sat 1.25', {**FINE_L, **GREY_LAND('24,24,28'), '--palette-extend': '#ffd23f,#ffe680',
+                                     '--building-saturation': '1.25'}),
+    ('12 = 02, gold top + sat 1.25', {**FINE_L, '--palette-extend': '#ffd23f,#ffe680', '--building-saturation': '1.25'}),
+]
+SETS['wow2'] = (W08, WOW2_VARIANTS)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -95,7 +121,7 @@ def main():
     ap.add_argument('--name', required=True)
     ap.add_argument('--dpi', default='300')
     ap.add_argument('--cols', type=int, default=4)
-    ap.add_argument('--set', default='light', choices=sorted(SETS))
+    ap.add_argument('--set', default='light', choices=sorted(SETS))  # SETS is filled at import
     ap.add_argument('--root', default=str(PROJECT_DIR / 'png' / 'previews'),
                     help='Folder for style_<name>/ and style_grid_<name>.png (style lab: png/style_lab)')
     ap.add_argument('--only', help='Comma-separated variant numbers to (re)render, e.g. 2,5')

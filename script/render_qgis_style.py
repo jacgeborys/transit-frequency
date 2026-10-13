@@ -192,24 +192,25 @@ def lstar(rgb):
 
 def regroup_ranges(renderer, breaks):
     """
-    Merge a graduated renderer's classes into fewer, wider ones at the given lower bounds
-    (e.g. [50, 200, 500, 1500] -> 5 classes). Each new class keeps the symbol of its first
-    old class; apply_palette then spreads the palette over the new classes.
+    Replace a graduated renderer's classes with new ones at the given lower bounds: fewer
+    (e.g. "50,200,500,1500" -> 5 classes) or more (finer steps, extra top classes). Each new
+    class gets a copy of the old symbol its lower bound falls in; apply_palette then spreads
+    the palette over the new classes.
     """
     if not breaks or renderer['type'] != 'graduatedSymbol':
         return
+    import copy
     old = renderer['ranges']
-    edges = [old[0][0]] + list(breaks) + [old[-1][1]]
+    top = max(old[-1][1], breaks[-1] * 10)  # open-ended top class
+    edges = [old[0][0]] + [b for b in breaks if b > old[0][0]] + [top]
     new = []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        members = [r for r in old if lo <= r[0] < hi]
-        if not members:
-            continue
-        last = hi == edges[-1]
+    for k, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+        src = next((r for r in reversed(old) if r[0] <= lo), old[0])
+        name = f'brk{k}'
+        renderer['symbols'][name] = copy.deepcopy(renderer['symbols'][src[2]])
+        last = k == len(edges) - 2
         label = f"{lo:g}+" if last else f"{lo:g} - {hi:g}"
-        if lo == edges[0]:
-            label = f"< {hi:g}" if not last else label
-        new.append((lo, hi, members[0][2], True, label))
+        new.append((lo, hi, name, True, label))
     renderer['ranges'] = new
 
 
