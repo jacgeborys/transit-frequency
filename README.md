@@ -29,7 +29,11 @@ unchanged, still pre-fix) and its 300 dpi final, JPEG and the collage redone. **
 for the LinkedIn panel (`sketch_access.py --paths none --building-status`): lavender public / pale-lavender
 residents-only walk areas, reached buildings deep purple, unreached hatched, red square = closed gate,
 ring = open gate, yellow stops, legend box; `--center`, `--cached` (reuses the last `--recompute`).
-Panel planned: Plac Wilsona, Cichy Kącik, San Francisco stairs/hills, Times Square.
+Panel done: `png/sketch_panel_4.png` / `png/compressed/sketch_panel_4.jpg` (`make_sketch_panel.py`;
+Plac Wilsona, Cichy Kącik, Hyde & Lombard with stairs + flat-walk outline, Times Square; tiles
+recomputed with the current rules). **Fences on multipolygon relations** were never fetched (e.g. ROD
+"Małe Błonia", Kraków): fetcher fixed; `add_barrier_relations.py --city X` patches an existing
+basemap (done for Kraków: 25). Maps pick it up only with an iso rerun (not done; all cities affected).
 
 **2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
 (La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
