@@ -72,6 +72,9 @@ def main():
     parser.add_argument('--recompute', action='store_true',
                         help='Recompute these stops with the current rules instead of reading the city files')
     parser.add_argument('--suffix', default='', help='Appended to the output file name')
+    parser.add_argument('--center', help='View centre "lat,lon" (default: mean of the stops)')
+    parser.add_argument('--cached', action='store_true',
+                        help='Reuse the isochrones the last --recompute of these stops saved')
     parser.add_argument('data_folder', nargs='?')
     args = parser.parse_args()
 
@@ -89,12 +92,22 @@ def main():
     ids = set(st['stop_id'])
     stops = gpd.GeoDataFrame(st, geometry=gpd.points_from_xy(st.stop_lon, st.stop_lat), crs=4326).to_crs(crs)
     cx, cy = stops.geometry.x.mean(), stops.geometry.y.mean()
+    if args.center:
+        lat, lon = (float(v) for v in args.center.split(','))
+        cx, cy = gpd.GeoSeries.from_xy([lon], [lat], crs=4326).to_crs(crs).iloc[0].coords[0]
     r = args.radius
     bb = (cx - r, cy - r, cx + r, cy + r)
     b4 = tuple(gpd.GeoSeries.from_xy([bb[0], bb[2]], [bb[1], bb[3]], crs=crs).to_crs(4326).total_bounds)
 
-    if args.recompute:
+    cache = data_dir / 'diagnostics' / ('sketch_iso_' + re.sub(r'[^a-z0-9]+', '_', args.stop.lower()).strip('_') + '.gpkg')
+    if args.cached:
+        pub = gpd.read_file(cache, layer='public').to_crs(crs)
+        res = gpd.read_file(cache, layer='residents').to_crs(crs)
+    elif args.recompute:
         pub, res = recompute(city, st, stops)
+        cache.parent.mkdir(exist_ok=True)
+        pub.to_file(cache, layer='public', driver='GPKG')
+        (res if len(res) else pub.iloc[0:0]).to_file(cache, layer='residents', driver='GPKG')
     else:
         pub = gpd.read_file(data_dir / 'isochrones_gates.gpkg').to_crs(crs)
         pub = pub[pub.stop_id.isin(ids)]
@@ -104,7 +117,6 @@ def main():
 
     fig, ax = plt.subplots(figsize=(11, 11))
     bld = gpd.read_file(osm / 'buildings.gpkg', bbox=b4).to_crs(crs)
-    bld.plot(ax=ax, color='#d4d4d4')
     # One shape per class (stacked translucent stops would blur pale into dark)
     pub_u = pub.geometry.unary_union if len(pub) else None
     if len(res):
@@ -114,12 +126,21 @@ def main():
         gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f8cfe0')
     if pub_u is not None:
         gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#d96b97')
+    # Buildings as a pale grey hatch on top of the isochrones (the walk area shows through)
+    plt.rcParams['hatch.linewidth'] = 0.6
+    bld.plot(ax=ax, facecolor='none', edgecolor='#a8a8a8', hatch='//////', lw=0)
     bld.boundary.plot(ax=ax, color='#4a4a4a', lw=0.6)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
-        fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#1b5e20', lw=1)
-    pw = gpd.read_file(osm / 'private_ways.gpkg', bbox=b4).to_crs(crs)
-    priv = pw[pw.osm_id.astype('int64').isin(private_way_ids(osm))]
+        fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#1f5fbf', lw=0.9)
+    pw = gpd.read_file(osm / 'private_ways.gpkg', bbox=b4).to_crs(crs)  # all minor ways (footways, service, ...)
+    is_priv = pw.osm_id.astype('int64').isin(private_way_ids(osm))
+    priv = pw[is_priv]
+    # Public walkable ways in green: streets + the public minor ways
+    rd = gpd.read_file(osm / 'roads.gpkg', bbox=b4).to_crs(crs)
+    rd = rd[~rd.highway.isin(['motorway', 'motorway_link', 'trunk', 'trunk_link'])]
+    paths = pd.concat([rd.geometry, pw[~is_priv].geometry])
+    paths[paths.geom_type.isin(['LineString', 'MultiLineString'])].plot(ax=ax, color='#2e9d4a', lw=1.1)
     if len(priv):
         priv.plot(ax=ax, color='orange', lw=2)
     gt = gpd.read_file(osm / 'gates.gpkg', bbox=b4).to_crs(crs)
@@ -130,13 +151,13 @@ def main():
         hl = gpd.read_file(args.highlight, bbox=b4).to_crs(crs)
         if len(hl):
             hl.plot(ax=ax, facecolor='none', edgecolor='#1565c0', hatch='///', lw=1.2, zorder=4)
-    stops.plot(ax=ax, color='blue', markersize=80, marker='*', zorder=5)
+    stops.plot(ax=ax, color='black', edgecolor='white', markersize=110, marker='*', zorder=5)
     ax.set_xlim(bb[0], bb[2])
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
     name = args.name or st['stop_name'].iloc[0]
     ax.set_title(f'{name} ({city["name"]}): dark = public isochrones, pale = residents-only, '
-                 f'green = fences, orange = private ways, red x = closed gates, * = stops'
+                 f'green = public paths, blue = fences, orange = private ways, red x = closed gates, * = stops'
                  + (', blue hatch = highlighted' if args.highlight else ''), fontsize=9)
     import unicodedata
     ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()

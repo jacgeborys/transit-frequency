@@ -201,6 +201,8 @@ CITIES = {
         'geofabrik': 'https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf',
         'network_tiles': 8,  # dense 45 x 38 km area: keep Overpass requests small
         'template': 'krakow',  # no QGIS layout of its own: render with Kraków's layout/styles
+        # EPSG:25833 m: 80 % of the bbox (46.3 x 38.8 km) around its centre (2026-10-13 zoom-in)
+        'render_frame': (374510, 5803460, 411540, 5834510),
     },
 
     'manhattan': {
