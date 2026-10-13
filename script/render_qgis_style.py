@@ -190,6 +190,29 @@ def lstar(rgb):
     return 116 * y ** (1 / 3) - 16 if y > 0.008856 else 903.3 * y
 
 
+def regroup_ranges(renderer, breaks):
+    """
+    Merge a graduated renderer's classes into fewer, wider ones at the given lower bounds
+    (e.g. [50, 200, 500, 1500] -> 5 classes). Each new class keeps the symbol of its first
+    old class; apply_palette then spreads the palette over the new classes.
+    """
+    if not breaks or renderer['type'] != 'graduatedSymbol':
+        return
+    old = renderer['ranges']
+    edges = [old[0][0]] + list(breaks) + [old[-1][1]]
+    new = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        members = [r for r in old if lo <= r[0] < hi]
+        if not members:
+            continue
+        last = hi == edges[-1]
+        label = f"{lo:g}+" if last else f"{lo:g} - {hi:g}"
+        if lo == edges[0]:
+            label = f"< {hi:g}" if not last else label
+        new.append((lo, hi, members[0][2], True, label))
+    renderer['ranges'] = new
+
+
 def apply_palette(renderer, name, extend=None, min_lightness=0.0, min_step=0.0):
     """Recolour a graduated renderer's classes in place with a matplotlib colormap."""
     if not name or name == 'qgis' or renderer['type'] != 'graduatedSymbol':
@@ -1087,6 +1110,11 @@ def main():
                         help="Text, legend frame and map frame colour (dark mode), e.g. '230,230,235'")
     parser.add_argument('--bg-rgb', default=None,
                         help="Map background (land) RGB instead of the layout's, e.g. '240,240,240'")
+    parser.add_argument('--hide', action='append', default=[], metavar='LAYER',
+                        help='Leave out a basemap layer by file stem (repeatable): roads, railways, '
+                             'parks, forests, grass, ...')
+    parser.add_argument('--breaks', default=None,
+                        help='Fewer, wider classes: lower bounds, e.g. "50,200,500,1500" -> 5 classes')
     parser.add_argument('--roads-under-buildings', action='store_true',
                         help='With --buildings: draw the coloured buildings after roads and railways '
                              '(streets no longer paint over footprints)')
@@ -1101,6 +1129,7 @@ def main():
     USE_INTER = bool(args.headline_city)
     POSTER_FONT = args.poster_font
     PALETTE_EXTEND = args.palette_extend.split(',') if args.palette_extend else None
+    BREAKS = [float(v) for v in args.breaks.split(',')] if args.breaks else None
     if args.page_rgb:
         PAGE_FACE = tuple(int(v) / 255 for v in args.page_rgb.split(','))
     if args.ink_rgb:
@@ -1203,6 +1232,8 @@ def main():
             else:
                 print(f"  (template layer {layer['name']}: {new_path.name} missing for {city['name']}, skipped)")
         stack = kept
+    if args.hide:  # pure Schwarzplan: drop basemap layers by file stem
+        stack = [l for l in stack if l['path'].stem not in set(args.hide)]
     # Water always sits above the coverage colours (you can't walk on water);
     # stack is top-most first, so move water layers just in front of the coverage
     cov_pos = next((i for i, l in enumerate(stack) if 'coverage_map' in l['path'].name), None)
@@ -1244,9 +1275,10 @@ def main():
     for layer in stack:
         if 'coverage_map' in layer['path'].name:
             layer['path'], layer['layername'] = coverage, None  # single-layer gpkg; name follows the file
+            regroup_ranges(layer['renderer'], BREAKS)
             apply_palette(layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness,
                           args.min_lightness_step)
-            if args.min_fill_lightness:
+            if args.min_fill_lightness and (args.coverage_fade if args.buildings else 1.0) > 0:  # no fill, no floor
                 bg_rgb = tuple(int(v) / 255 for v in args.bg_rgb.split(',')) if args.bg_rgb else (1, 1, 1)
                 fade = args.coverage_fade if args.buildings else 1.0
                 floor_fill_lightness(layer['renderer'], layer['opacity'] * fade, bg_rgb,
@@ -1493,6 +1525,7 @@ def main():
         leg_node = [n for n in leg_tree.iter('layer-tree-layer')][0]
         leg_layer = parse_layer(layers_by_id[leg_node.get('id')], project_dir)
         leg_layer['legend_title'] = args.legend_title or leg_node.get('name')
+        regroup_ranges(leg_layer['renderer'], BREAKS)
         apply_palette(leg_layer['renderer'], args.palette, PALETTE_EXTEND, args.min_lightness,
                           args.min_lightness_step)
         if args.buildings:  # swatches = the opaque building colours actually drawn on the map

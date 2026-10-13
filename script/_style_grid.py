@@ -46,7 +46,46 @@ DARK_BASE = {
 DARK_VARIANTS = [(f'{i:02d} {name}', {'--palette': name}) for i, name in enumerate([
     'magma_dark', 'inferno_dark', 'plasma_dark', 'chroma_dark', 'ember_dark', 'neon_dark',
     'flamingo_dark', 'bmy_dark', 'synthwave', 'aurora', 'cyberpunk', 'lava'], 1)]
-SETS = {'light': (BASE, VARIANTS), 'dark': (DARK_BASE, DARK_VARIANTS)}
+# "Wow" set (2026-10-13): the current poster vs pure Schwarzplan variants in the spirit of the
+# viral 2023 rail maps (buildings only, flat colours, few classes, no fills/halos/roads).
+# None = flag without value; DROP = remove the option from the base.
+DROP = object()
+GROUND = ['roads', 'railways', 'parks', 'forests', 'grass', 'meadow', 'allotments', 'cemeteries',
+          'leisure', 'leisure_relations', 'waterways']
+WOW_BASE = {  # = render_poster.STYLE (map part)
+    '--bg-rgb': '0,0,0', '--green-rgb': '30,44,34', '--forest-rgb': '28,50,37',
+    '--uncovered-rgb': '58,58,64', '--coverage-fade': '0.42', '--min-fill-lightness': '7',
+    '--building-shade': '1.0', '--building-saturation': '1.1',
+    '--road-edge-mm': '0.06', '--road-edge-rgb': '66,68,80',
+    '--recolor': ['water=22,39,63', 'roads=80,82,94', 'railways=100,100,112', 'buildings=45,46,52'],
+    '--line-scale': 'railways=0.6',
+    '--building-outline-mm': '0.05', '--building-outline-rgb': '95,96,105', '--building-outline-spill': '0.35',
+    '--palette': 'bmy_dark', '--min-lightness': '40', '--min-lightness-step': '1.6',
+    '--palette-extend': '#fff38a,#fffbd6', '--roads-under-buildings': None,
+}
+SCHWARZ = {'--coverage-fade': '0', '--hide': GROUND, '--building-outline-mm': '0', '--road-edge-mm': '0'}
+SIX = {'--breaks': '25,100,250,600,1500', '--min-lightness': '42', '--min-lightness-step': '8'}
+THREE = {'--breaks': '100,500', '--min-lightness': '45', '--min-lightness-step': '15'}
+LIGHT = {'--bg-rgb': '255,255,255', '--uncovered-rgb': '212,212,216',
+         '--recolor': ['water=255,255,255', 'buildings=212,212,216'],
+         '--min-lightness': DROP, '--min-lightness-step': DROP, '--palette-extend': DROP,
+         '--min-fill-lightness': DROP}
+WOW_VARIANTS = [
+    ('01 current poster', {}),
+    ('02 no ground fill', {'--coverage-fade': '0'}),
+    ('03 dark Schwarzplan, 19 classes', {**SCHWARZ}),
+    ('04 dark Schwarzplan, 6 classes', {**SCHWARZ, **SIX}),
+    ('05 dark, 6 classes, plasma', {**SCHWARZ, **SIX, '--palette': 'plasma_dark', '--palette-extend': DROP}),
+    ('06 dark, 6 classes, neon', {**SCHWARZ, **SIX, '--palette': 'neon_dark', '--palette-extend': DROP}),
+    ('07 dark, 3 classes', {**SCHWARZ, **THREE}),
+    ('08 dark, 6 cl., darker grey', {**SCHWARZ, **SIX, '--uncovered-rgb': '34,34,38',
+                                     '--recolor': ['water=14,24,40', 'buildings=34,34,38']}),
+    ('09 light Schwarzplan, 19 cl. plasma', {**SCHWARZ, **LIGHT, '--palette': 'plasma'}),
+    ('10 light, 6 classes, plasma', {**SCHWARZ, **LIGHT, '--palette': 'plasma', '--breaks': SIX['--breaks']}),
+    ('11 light, 6 classes, turbo', {**SCHWARZ, **LIGHT, '--palette': 'turbo', '--breaks': SIX['--breaks']}),
+    ('12 light, 3 classes, plasma', {**SCHWARZ, **LIGHT, '--palette': 'plasma', '--breaks': THREE['--breaks']}),
+]
+SETS = {'light': (BASE, VARIANTS), 'dark': (DARK_BASE, DARK_VARIANTS), 'wow': (WOW_BASE, WOW_VARIANTS)}
 
 
 def main():
@@ -57,13 +96,15 @@ def main():
     ap.add_argument('--dpi', default='300')
     ap.add_argument('--cols', type=int, default=4)
     ap.add_argument('--set', default='light', choices=sorted(SETS))
+    ap.add_argument('--root', default=str(PROJECT_DIR / 'png' / 'previews'),
+                    help='Folder for style_<name>/ and style_grid_<name>.png (style lab: png/style_lab)')
     ap.add_argument('--only', help='Comma-separated variant numbers to (re)render, e.g. 2,5')
     args = ap.parse_args()
 
     city = get_city(args.city)
     data = sorted(d for d in city['data_dir'].iterdir() if (d / 'coverage_map_gates.gpkg').exists())[-1]
     base, variants = SETS[args.set]
-    out_dir = PROJECT_DIR / 'png' / 'previews' / f'style_{args.name}'
+    out_dir = Path(args.root) / f'style_{args.name}'
     out_dir.mkdir(parents=True, exist_ok=True)
     only = {int(x) for x in args.only.split(',')} if args.only else None
 
@@ -74,13 +115,16 @@ def main():
         files.append((label, f))
         if only and num not in only:
             continue
-        opts = {**base, **over}
+        opts = {k: v for k, v in {**base, **over}.items() if v is not globals().get('DROP')}
         cmd = [sys.executable, 'render_qgis_style.py', '--city', args.city,
                '--coverage', str(data / 'coverage_map_gates.gpkg'),
                '--buildings', str(data / 'buildings_gates.gpkg'),
                '--restricted-buildings', '--date', '07.10.2026', '--dpi', args.dpi,
-               '--crop', args.crop, '--out', str(f)]
+               f'--crop={args.crop}', '--out', str(f)]  # = form: western longitudes start with '-'
         for k, v in opts.items():
+            if v is None:  # flag without a value
+                cmd.append(k)
+                continue
             for item in (v if isinstance(v, list) else [v]):
                 cmd += [k, item]
         print(f'{label}...', flush=True)
@@ -102,7 +146,7 @@ def main():
         y = pad + (i // args.cols) * (h + head + pad)
         draw.text((x, y + 6), label, fill='black', font=font)
         sheet.paste(im, (x, y + head))
-    out = PROJECT_DIR / 'png' / 'previews' / f'style_grid_{args.name}.png'
+    out = Path(args.root) / f'style_grid_{args.name}.png'
     sheet.save(out)
     print(f'Saved {out}')
 

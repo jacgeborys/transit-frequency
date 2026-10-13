@@ -35,6 +35,13 @@ recomputed with the current rules). **Fences on multipolygon relations** were ne
 "Małe Błonia", Kraków): fetcher fixed; `add_barrier_relations.py --city X` patches an existing
 basemap (done for Kraków: 25). Maps pick it up only with an iso rerun (not done; all cities affected).
 
+**2026-10-13: style lab (`png/style_lab/`)**: looking for a crisper "wow" look like the viral 2023
+Schwarzplan rail maps (buildings only, flat colours, 3 classes, white). New renderer options: `--hide LAYER`
+(drop basemap layers), `--breaks 25,100,250,600,1500` (merge the 19 classes into fewer, wider ones).
+`_style_grid.py --set wow --root ../png/style_lab` renders 12 variants (current poster, dark/light
+Schwarzplan, 19/6/3 classes, bmy/plasma/neon/turbo): `png/style_lab/style_grid_boston_wow.png`. Old
+Tricity style grids moved to `png/archive/how_it_was_made/style/`. Pick pending.
+
 **2026-10-13: Boston added** (`--city boston`, date 14.10.2026, MBTA feed "Fall 2026"): Boston core +
 Cambridge, Somerville, Brookline, Charlestown, East Boston/Logan, south to Dorchester/Jamaica Plain,
 15.6 x 14.8 km in UTM 19N, legend over Dorchester Bay, no hills. From scratch in 30 min (osm extract
