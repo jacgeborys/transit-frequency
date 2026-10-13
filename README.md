@@ -35,6 +35,18 @@ recomputed with the current rules). **Fences on multipolygon relations** were ne
 "Małe Błonia", Kraków): fetcher fixed; `add_barrier_relations.py --city X` patches an existing
 basemap (done for Kraków: 25). Maps pick it up only with an iso rerun (not done; all cities affected).
 
+**2026-10-13 evening: poster style "E" adopted** (`STYLE` in render_poster.py; chosen in `png/style_lab/`):
+Schwarzplan look: land grey 12, pitch-black roads under the buildings, parks/rails hidden, walk-area fill 0.30
+(the visible trace of the path/fence analysis), building saturation 1.35, "paint spill" outlines, **25 classes
+to 3500+** (`--breaks`, above 3500 only ~1 %, Berlin), **continuous legend ramp** labelled 1/10/50/100/250/500/
+1000/2000/3500+ (`--legend-ticks`, `--legend-compact 0.55`). Headlines say "transit" (EN), ÖPNV/ÖV (DE/CH),
+ov (NL), transports en commun (FR), komunikacji (PL). **Boston and Paris zoomed out ~10 %** (rerun from GTFS:
+Boston 17.2 x 16.4 km, Paris 24.3 x 16.9 km; Paris now has Stade de France, both bois). 150 dpi previews of all
+11 in `png/previews/<city>_poster_150.png`; 300 dpi finals so far: Warsaw (old dark finals archived in
+`png/archive/finals_2026_10_13_dark/`). 3D: colours follow `STYLE` via `poster_colours()` (breaks applied there
+too); haze pushed back (`--haze-start` 6000 Warsaw / 7000 NYC); NYC final view `brooklyn_tilt8` (8 deg lower:
+hides uncoloured Manhattan north of Harlem), no bloom.
+
 **2026-10-13: style lab (`png/style_lab/`)**: looking for a crisper "wow" look like the viral 2023
 Schwarzplan rail maps (buildings only, flat colours, 3 classes, white). New renderer options: `--hide LAYER`
 (drop basemap layers), `--breaks 25,100,250,600,1500` (merge the 19 classes into fewer, wider ones).
