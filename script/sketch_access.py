@@ -127,25 +127,25 @@ def main():
         res_only = res.geometry.unary_union
         if pub_u is not None:
             res_only = res_only.difference(pub_u)
-        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#fbe6ef' if args.building_status else '#f8cfe0')
+        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f8d3e2' if args.building_status else '#f8cfe0')
     if pub_u is not None:
-        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#f2b8cf' if args.building_status else '#d96b97')
+        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#ee9fbf' if args.building_status else '#d96b97')
     plt.rcParams['hatch.linewidth'] = 0.6
     if args.building_status:
         # A building counts as reached when the walk area touches it (as in 05)
         hit_pub = bld.intersects(pub_u) if pub_u is not None else pd.Series(False, index=bld.index)
         res_u = res.geometry.unary_union if len(res) else None
-        hit_res = (bld.intersects(res_u) if res_u is not None else pd.Series(False, index=bld.index)) & ~hit_pub
-        bld[hit_pub].plot(ax=ax, color='#c2185b')
-        bld[hit_res].plot(ax=ax, color='#ef7fab')
-        bld[~hit_pub & ~hit_res].plot(ax=ax, facecolor='white', edgecolor='#a8a8a8', hatch='//////', lw=0)
+        hit = hit_pub | (bld.intersects(res_u) if res_u is not None else False)
+        # One colour for every reached building: the surface shows who may walk there
+        bld[hit].plot(ax=ax, color='#c2185b')
+        bld[~hit].plot(ax=ax, facecolor='white', edgecolor='#a8a8a8', hatch='//////', lw=0)
     else:
         # Buildings as a pale grey hatch on top of the isochrones (the walk area shows through)
         bld.plot(ax=ax, facecolor='none', edgecolor='#a8a8a8', hatch='//////', lw=0)
-    bld.boundary.plot(ax=ax, color='#4a4a4a', lw=0.6)  # outlines on top of the isochrones
+    bld.boundary.plot(ax=ax, color='#7a7a7a', lw=0.5)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
-        fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#1f5fbf', lw=0.9)
+        fen.boundary.where(fen.geom_type == 'Polygon', fen.geometry).plot(ax=ax, color='#263238', lw=1.0)
     pw = gpd.read_file(osm / 'private_ways.gpkg', bbox=b4).to_crs(crs)  # all minor ways (footways, service, ...)
     is_priv = pw.osm_id.astype('int64').isin(private_way_ids(osm))
     priv = pw[is_priv]
@@ -162,23 +162,40 @@ def main():
         priv.plot(ax=ax, color='orange', lw=2)
     gt = gpd.read_file(osm / 'gates.gpkg', bbox=b4).to_crs(crs)
     closed = gt[gt.osm_id.astype('int64').isin(closed_gate_ids(osm, crs))]
+    opened = gt[~gt.index.isin(closed.index)]
+    if len(opened):
+        opened.plot(ax=ax, color='white', edgecolor='#2e7d32', linewidth=1.6, marker='o', markersize=34, zorder=4)
     if len(closed):
-        closed.plot(ax=ax, color='red', marker='x', markersize=60)
+        closed.plot(ax=ax, color='#e53935', edgecolor='white', linewidth=1.0, marker='s', markersize=30, zorder=4)
     if args.highlight:
         hl = gpd.read_file(args.highlight, bbox=b4).to_crs(crs)
         if len(hl):
             hl.plot(ax=ax, facecolor='none', edgecolor='#1565c0', hatch='///', lw=1.2, zorder=4)
-    stops.plot(ax=ax, color='black', edgecolor='white', markersize=110, marker='*', zorder=5)
+    stops.plot(ax=ax, color='#1565c0', edgecolor='white', linewidth=1.8, markersize=150, marker='o', zorder=5)
+    stops.plot(ax=ax, color='white', markersize=18, marker='o', zorder=6)
     ax.set_xlim(bb[0], bb[2])
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
     name = args.name or st['stop_name'].iloc[0]
-    legend = (['dark = public isochrones', 'pale = residents-only']
-              + (['filled buildings = reached (dark) / residents-only (mid)'] if args.building_status else [])
-              + (['green = public paths', 'orange = private ways'] if args.paths == 'all' else [])
-              + ['blue = fences', 'red x = closed gates', '* = stops'])
-    ax.set_title(f'{name} ({city["name"]}): ' + ', '.join(legend)
-                 + (', blue hatch = highlighted' if args.highlight else ''), fontsize=9)
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    bs = args.building_status
+    handles = [Patch(color='#ee9fbf' if bs else '#d96b97', label='5-min walk, public'),
+               Patch(color='#f8d3e2' if bs else '#f8cfe0', label='5-min walk, residents only')]
+    if bs:
+        handles += [Patch(color='#c2185b', label='building reached'),
+                    Patch(facecolor='white', edgecolor='#a8a8a8', hatch='//////', label='building not reached')]
+    if args.paths == 'all':
+        handles += [Line2D([], [], color='#2e9d4a', lw=1.5, label='public path'),
+                    Line2D([], [], color='orange', lw=2, label='private way')]
+    handles += [Line2D([], [], color='#263238', lw=1.2, label='fence / wall'),
+                Line2D([], [], ls='', marker='s', ms=7, mfc='#e53935', mec='white', label='closed gate'),
+                Line2D([], [], ls='', marker='o', ms=7, mfc='white', mec='#2e7d32', mew=1.6, label='open gate'),
+                Line2D([], [], ls='', marker='o', ms=11, mfc='#1565c0', mec='white', mew=1.8, label='stop')]
+    if args.highlight:
+        handles.append(Patch(facecolor='none', edgecolor='#1565c0', hatch='///', label='highlighted'))
+    ax.legend(handles=handles, loc='lower right', fontsize=9, framealpha=0.93, edgecolor='#cccccc')
+    ax.set_title(f'{name} ({city["name"]})', fontsize=13, loc='left')
     import unicodedata
     ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()
     slug = re.sub(r'[^a-z0-9]+', '_', ascii_name).strip('_')
