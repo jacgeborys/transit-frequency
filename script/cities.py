@@ -396,7 +396,7 @@ CITIES['tricity'] = {
 CITIES['paris'] = {
     'name': 'Paris',
     # Covers the render frame below + 400 m
-    'bbox': {'south': 48.785, 'west': 2.190, 'north': 48.935, 'east': 2.508},
+    'bbox': {'south': 48.779, 'west': 2.177, 'north': 48.941, 'east': 2.522},
     'crs_metric': 'EPSG:2154',  # Lambert-93 (metres)
     'gtfs': {
         # Île-de-France Mobilités: all of the region (RATP, SNCF RER/Transilien, Optile), clipped
@@ -409,8 +409,8 @@ CITIES['paris'] = {
     'osm_pbf': ['europe/france/ile-de-france'],
     'network_tiles': 10,
     'template': 'krakow',
-    # EPSG:2154 m: 2.20-2.50 E, 48.79-48.93 N
-    'render_frame': (641230, 6854730, 663370, 6870120),
+    # EPSG:2154 m: 24.3 x 16.9 km (2026-10-13: zoomed out ~10 % from 22.1 x 15.4 km)
+    'render_frame': (640130, 6853960, 664470, 6870890),
 }
 
 
@@ -419,7 +419,7 @@ CITIES['paris'] = {
 CITIES['boston'] = {
     'name': 'Boston',
     # Covers the render frame below + 400 m
-    'bbox': {'south': 42.277, 'west': -71.186, 'north': 42.423, 'east': -70.980},
+    'bbox': {'south': 42.270, 'west': -71.195, 'north': 42.430, 'east': -70.970},
     'crs_metric': 'EPSG:32619',  # UTM 19N (metres); MA State Plane would also do
     'gtfs': {
         # MBTA: subway, light rail, bus, commuter rail, ferries (route_type on every route)
@@ -432,8 +432,8 @@ CITIES['boston'] = {
     'osm_pbf': ['north-america/us/massachusetts'],
     'network_tiles': 7,
     'template': 'krakow',
-    # m in UTM 19N: 71.175-70.990 W, 42.285-42.415 N
-    'render_frame': (320670, 4683340, 336270, 4698150),
+    # m in UTM 19N: 17.2 x 16.4 km (2026-10-13: zoomed out 800 m each side from 15.6 x 14.8 km)
+    'render_frame': (319870, 4682540, 337070, 4698950),
     'legend_corner': 'bottom-right',  # over Dorchester Bay / Quincy Bay
 }
 
