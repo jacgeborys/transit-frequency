@@ -22,20 +22,21 @@ from mathutils import Vector
 from mathutils.geometry import tessellate_polygon
 
 HERE = Path(__file__).resolve().parent
-GROUND_Z = {'base': 0.0, 'green': 0.05, 'forest': 0.06, 'water': 0.08, 'roads': 0.10, 'railways': 0.12}
+GROUND_Z = {'base': 0.0, 'green': 0.05, 'forest': 0.06, 'coverage': 0.07, 'water': 0.08, 'roads': 0.10,
+            'railways': 0.12}
 GROUND_COLOUR = {'base': 'background', 'green': 'green', 'forest': 'forest', 'water': 'water',
                  'roads': 'roads', 'railways': 'railways'}
 BASE_RGB = (12, 12, 15)  # ground plane: a touch above the poster's pure black so it reads in 3D
 # Looks: sky/horizon (linear; horizon = haze colour, so far ground melts into the sky), sun, building
 # glow (strength = glow * (floor + (1 - floor) * class_fraction ** power), walls * wall_glow vs roofs),
-# faint street and river glow, compositor bloom (0 = off)
+# faint street, river and coverage glow (coverage alpha = poster alpha x coverage_alpha), compositor bloom (0 = off)
 LOOKS = {
     'day': dict(sky=(0.004, 0.005, 0.009), horizon=(0.016, 0.019, 0.032), sun_energy=3.0,
                 sun_colour=(1.0, 0.92, 0.82), glow=0.3, glow_floor=0.05, glow_power=2.0, wall_glow=1.0,
-                road_glow=0.0, water_glow=0.0, bloom=0.0),
+                road_glow=0.0, water_glow=0.0, coverage_glow=0.0, coverage_alpha=0.45, bloom=0.0),
     'night': dict(sky=(0.0006, 0.0008, 0.0016), horizon=(0.004, 0.005, 0.010), sun_energy=0.25,
-                  sun_colour=(0.65, 0.75, 1.0), glow=1.6, glow_floor=0.08, glow_power=1.6, wall_glow=0.5,
-                  road_glow=0.12, water_glow=0.35, bloom=0.6),
+                  sun_colour=(0.65, 0.75, 1.0), glow=1.0, glow_floor=0.08, glow_power=1.6, wall_glow=0.5,
+                  road_glow=0.12, water_glow=0.35, coverage_glow=0.25, coverage_alpha=0.7, bloom=0.35),
 }
 FOCUS_PKIN = (0.0, 0.0, 90.0)  # tilt-shift target: Palace of Culture (scene origin), ~90 m up the tower
 
@@ -98,12 +99,13 @@ def make_mesh(name, verts, faces):
     return ob
 
 
-def flat_material(name, rgb, roughness=0.9, glow=0.0):
+def flat_material(name, rgb, roughness=0.9, glow=0.0, alpha=1.0):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     p = m.node_tree.nodes['Principled BSDF']
     p.inputs['Base Color'].default_value = (*lin(rgb), 1)
     p.inputs['Roughness'].default_value = roughness
+    p.inputs['Alpha'].default_value = alpha
     if glow:
         p.inputs['Emission Color'].default_value = (*lin(rgb), 1)
         p.inputs['Emission Strength'].default_value = glow
@@ -262,13 +264,18 @@ def main():
             continue
         v, f, c = [], [], []
         for poly in polys:
-            add_prism(v, f, c, poly, 0.0, GROUND_Z.get(layer, 0.02), 0, walls=False)
+            add_prism(v, f, c, poly, 0.0, GROUND_Z.get(layer.split('_')[0], 0.02), 0, walls=False)
         gob = make_mesh(f'ground_{layer}', v, f)
+        if layer.startswith('coverage_'):  # 2D coverage tint: poster colour at the poster's alpha
+            *rgb, alpha = scene_data['coverage_palette'][int(layer.split('_')[1])]
+            gob.data.materials.append(flat_material(f'ground_{layer}', rgb, alpha=alpha * look['coverage_alpha'],
+                                                    glow=look['coverage_glow']))
+            continue
         rgb = BASE_RGB if layer == 'base' else colours.get(GROUND_COLOUR.get(layer, layer), (40, 40, 40))
         gob.data.materials.append(flat_material(f'ground_{layer}', rgb,
                                                 roughness=0.25 if layer == 'water' else 0.9,
                                                 glow={'roads': look['road_glow'], 'water': look['water_glow']}.get(layer, 0.0)))
-    print('ground: ' + ', '.join(f'{k} {len(v)}' for k, v in scene_data['ground'].items()))
+    print('ground: ' + ', '.join(f'{k} {len(v)}' for k, v in scene_data['ground'].items() if not k.startswith('coverage_')))
     if args.horizon:  # ground plane to the horizon, just below the data's base, so there's no edge
         h = args.horizon / 2
         hob = make_mesh('ground_horizon', [(-h, -h, -0.05), (h, -h, -0.05), (h, h, -0.05), (-h, h, -0.05)],

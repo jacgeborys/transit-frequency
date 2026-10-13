@@ -78,15 +78,22 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 ```
 (`blender` = `"C:\Program Files\Blender Foundation\Blender 5.2lender.exe"`; 5.2.2 LTS installed.)
 
-- `export_scene.py` (Python 3.8 with geopandas): crop (square or `--shape circle`), heights from
-  `buildings_3d` (parts included: PKIN's columns etc.), frequency by `osm_id` or, for parts, from the
-  footprint the part's point lies in. Colours from `render_poster.poster_colours()` (the same code path
-  as the poster: bmy_dark + floor + extend, building shade/saturation). **Big buildings (PKIN, malls,
-  stations) are coloured by frequency** (the poster greys them; `--big-grey` for that). Ground layers
-  come from the poster's QGIS layer stack (Warsaw: `mapy_warszawy_misc` extract), roads buffered by
-  highway class. Ground layers are dissolved **per 250 m tile**: a dissolved road network is one
-  polygon with thousands of holes, which Blender's fill (tessellate_polygon) got wrong, painting a grey
-  sheet over the Vistula and many blocks (fixed 2026-10-12). Output `3d/scenes/<name>/scene.json` (~3 MB for 3x3 km).
+- `export_scene.py` (Python 3.8 with geopandas): crop (square, `--bounds` relative to the centre,
+  `--detail-bounds` = full-detail core; outside it outlines are simplified by 1 m). **Buildings + heights
+  from the OSM basemap** (`buildings.gpkg` incl. `building:part`): height, else levels x 3.2 m, else 9 m;
+  parts start at min_height / building_min_level; roofs/carports without height = slab at 3.5-4 m. A
+  building is drawn whole unless its parts cover >= 85 % of it; **parts take their parent's frequency**,
+  so a landmark is one colour (PKIN). (Until 2026-10-13 heights came from the housing-price project's
+  `buildings_3d`, which drops every building that has any part: Warsaw Spire kept only its crown,
+  Politechnika's main building was missing.) Frequency: parent's `osm_id` in `buildings_gates.gpkg`,
+  else the footprint it lies in. Colours from `render_poster.poster_colours()` (same code path as the
+  poster). **Big buildings are coloured by frequency** (poster greys them; `--big-grey`). Ground layers
+  from the poster's QGIS layer stack, dissolved per 250 m tile (a dissolved road network is one polygon
+  with thousands of holes that Blender's fill got wrong: grey sheet over the Vistula). **Coverage tint**:
+  `coverage_map_gates.gpkg` per class as `coverage_<k>` layers with the poster's composited colour and
+  alpha (`poster_colours()['coverage_classes']`). Output `3d/scenes/<name>/scene.json`.
+  Gotcha: build helper GeoDataFrames from arrays (`.values`); a dict of Index + a geometry Series are
+  aligned differently (by position vs label) and silently mismatch rows.
 - `build_blend.py` (inside Blender): one building mesh with face attributes `col` (linear colour),
   `glow` (emission by class), `cls`; flat ground meshes; low sun (`--sun-azimuth/--sun-elevation`),
   dark sky, camera (`--cam-azimuth/--cam-distance/--cam-height/--lens`), view transform Standard
@@ -100,14 +107,20 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
   `zoliborz` (from Żoliborz looking SE, lens 28 mm: 40 felt narrow). `render.py --lens` overrides the lens. `build_blend.py --view <name>` starts the .blend with that camera.
 - `build_blend.py` also adds a 40 km ground plane and a distance haze in the sky colour on every
   material (Camera Data distance, `--haze-start 2500 --haze-scale 5000`), so a wide view has no edge.
+- Coverage tint in 3D: transparent ground layers at alpha = poster alpha x `coverage_alpha` (day 0.45,
+  night 0.7 + emission 0.25); full poster alpha drowned the buildings.
 - **Looks** (`build_blend.py --look day|night`, table `LOOKS`): `day` -> `scene.blend`; `night` ->
   `scene_night.blend`: moonlight (sun 0.25, bluish), near-black sky, buildings glow by class (strength
   1.6 x (0.08 + 0.92 k^1.6)), walls at half the roof glow, streets 0.12 and the Vistula 0.35 faint glow
   (else the river vanishes), compositor **Bloom** (Blender 5: `scene.compositing_node_group`, Glare node
   settings are input sockets). Every build adds the empty `focus_pkin` (0, 0, 90 m) as the focus target.
+- **Far blur** (`render.py --far-blur start,end,size` or `"far_blur"` in the view json): compositor mixes
+  the image with a blurred copy by the depth pass, so only the distance softens (a lens can't do that:
+  blurring the horizon blurs PKIN at 60 %). Żoliborz: 9-18 km, 0.3 % of the width.
 - **Tilt-shift**: `render.py --fstop F` (or `"fstop"` in the view json) = depth of field on `focus_pkin`.
   City scale needs absurd f-numbers: from Żoliborz (6.4 km to PKIN) 0.0025+ is invisible, **0.001 = mild**
-  (user's choice, stored in `views/zoliborz.json`), 0.0005 = strong miniature.
+  at first, 0.0005 = strong miniature. 2026-10-13: user wants it on PKIN in `center` (f/0.004, 3.6 km)
+  and `mokotow` (f/0.003, 5 km), and **no lens tilt-shift in Żoliborz** (far blur only).
 - Sky: gradient from a dark zenith to a slightly lighter navy horizon (= haze colour); Eevee raytracing on.
 - `render.py`: **Cycles on CUDA by default** (1600x1000 ~25 s, 3200x2000 x 128 samples ~2 min; Eevee is
   no faster on this GPU and lacks the soft occlusion). Uses the .blend's camera unless `--view`.
@@ -131,8 +144,14 @@ blender --background 3d/scenes/warsaw_center/scene.blend --python 3d/render.py -
 - 2026-10-12: `warsaw_wide` extended north/east for the wider Żoliborz view: `--bounds=-7000,-6500,7000,9000`
   (14 x 15.5 km, 94k building polygons, 1.85M faces, json 37 MB, export 3 min). Lens comparison in
   `3d/renders/drafts/06_zoliborz_lens{32,28}.png`.
+- 2026-10-13: user prefers the **day (shadow) look**; night stays as an option (glow lowered to 1.0, bloom
+  0.35). Heights now from OSM (Spire, Politechnika complete; PKIN one colour), coverage tint, background to
+  Ursynów and Wawer: `warsaw_wide` = `--bounds=-7000,-15000,15000,9000 --detail-bounds=-7000,-6500,7000,9000`
+  (22 x 24 km, 203k buildings, 3.0M faces, json 102 MB, export ~10 min, build 32 s, 1600x1000 render ~50 s).
+  Finals `3d/renders/warsaw_{zoliborz,center,mokotow}.png`.
 - 2026-10-12: **night look + tilt-shift** (user liked both ideas). Finals `3d/renders/warsaw_night_{zoliborz,
   center,mokotow}.png` (Żoliborz with f/0.001 on PKIN; others without DOF). Drafts `07_night_*`,
   `08_night_tiltshift_f*` in `3d/renders/drafts/`. Next: try
-  tilt-shift on the other views, fly-over or height = frequency animation, glowing transit lines,
-  labels/legend overlay, New York.
+  New York from Brooklyn (above Prospect Park, looking at Manhattan): data is ready except heights:
+  `osm_basemap/newyork/buildings.gpkg` kept only osm_id + building, re-read height/levels/parts from
+  `osm_basemap/pbf/newyork_new-york.osm.pbf`. Also fly-over or height = frequency animation, labels/legend.

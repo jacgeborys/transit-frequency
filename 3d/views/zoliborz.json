@@ -12,6 +12,10 @@
  "lens": 28.0,
  "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_wide\\scene.blend",
  "from": "camera",
- "note": "lens widened from 40 to 28 mm on 2026-10-12 (40 felt narrow); mild tilt-shift on PKIN: fstop 0.001 (0.0005 = strong miniature)",
- "fstop": 0.001
+ "note": "lens widened from 40 to 28 mm on 2026-10-12 (40 felt narrow); no lens tilt-shift (user: not strong), only the far distance blurred (far_blur, compositor by depth)",
+ "far_blur": [
+  9000,
+  18000,
+  0.003
+ ]
 }

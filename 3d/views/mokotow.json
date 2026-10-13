@@ -11,5 +11,7 @@
  ],
  "lens": 40.0,
  "source": "D:\\QGIS\\TransitFrequency\\3d\\scenes\\warsaw_center\\scene_mokotow.blend",
- "from": "camera"
+ "from": "camera",
+ "fstop": 0.003,
+ "note": "mild tilt-shift on PKIN (fstop chosen for blur similar to Zoliborz f/0.001 at 6.4 km)"
 }

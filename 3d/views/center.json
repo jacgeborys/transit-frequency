@@ -11,5 +11,7 @@
  ],
  "lens": 40.0,
  "source": "build_blend.py defaults (cam azimuth 200, distance 3200, height 1800): the view of draft 2",
- "from": "defaults"
+ "from": "defaults",
+ "fstop": 0.004,
+ "note": "mild tilt-shift on PKIN (fstop chosen for blur similar to Zoliborz f/0.001 at 6.4 km)"
 }

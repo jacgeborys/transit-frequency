@@ -9,9 +9,14 @@ Writes 3d/scenes/<name>/scene.json (coordinates in metres, local to the crop cen
 city's metric CRS; z up). Colours come from render_poster.poster_colours, so they match the
 dark poster: palette[0] = not covered, palette[k] = class k (lower < max_trips <= upper).
 
-Heights (Warsaw): D:/QGIS/ceny_mieszkan/output/warsaw_prices_viz.gpkg, layer buildings_3d
-(simple buildings + building:part, all with height_m). Other cities: OSM height, else
-building_levels x 3.2 m, else 9 m. Parts take the frequency of the footprint they sit in.
+Buildings and heights: the city's OSM basemap (buildings.gpkg, incl. building:part).
+height, else building_levels x 3.2 m, else 9 m; parts start at min_height / building_min_level.
+A building is drawn whole unless its parts cover >= 85 % of it (then only the parts); parts take
+the frequency of the building they belong to, so a landmark is one colour. (The housing-price
+project's buildings_3d layer, used at first, drops every building that has any part: Warsaw
+Spire kept only its crown, Politechnika's main building vanished.)
+Ground also gets the 2D coverage tint ('coverage_<k>' layers with the poster's composited
+class colour + alpha, from coverage_map_gates.gpkg).
 """
 import argparse
 import json
@@ -33,8 +38,9 @@ import render_qgis_style as rq  # noqa: E402
 
 warnings.filterwarnings('ignore')
 
-HEIGHTS_3D = {'warsaw': (Path(r'D:\QGIS\ceny_mieszkan\output\warsaw_prices_viz.gpkg'), 'buildings_3d')}
 LEVEL_M, DEFAULT_M = 3.2, 9.0
+PARTS_COVER = 0.85          # parent hidden when its parts cover this share of its footprint
+FAR_SIMPLIFY_M = 1.0        # outline simplification outside --detail-bounds
 ROAD_WIDTH = {  # metres, full width of the drawn strip
     'motorway': 16, 'trunk': 16, 'primary': 13, 'secondary': 11, 'tertiary': 9,
     'motorway_link': 7, 'trunk_link': 7, 'primary_link': 7, 'secondary_link': 7, 'tertiary_link': 7,
@@ -122,6 +128,8 @@ def main():
                                      'the centre stays the scene origin, so saved views still fit')
     ap.add_argument('--data', help='Data folder with buildings_gates.gpkg (default: latest)')
     ap.add_argument('--name', required=True)
+    ap.add_argument('--detail-bounds', help='xmin,ymin,xmax,ymax (m from the centre): full detail inside; '
+                                            'outside, outlines are simplified (far background)')
     ap.add_argument('--big-grey', action='store_true',
                     help="Big buildings (malls, stations, PKIN) grey as on the poster; default: by frequency")
     args = ap.parse_args()
@@ -148,41 +156,77 @@ def main():
     ug = city['osm_dir'] / 'underground_ids.txt'
     underground = {int(v) for v in ug.read_text().split()} if ug.exists() else set()
 
-    # Geometry + heights
-    if city['key'] in HEIGHTS_3D:
-        path, layer = HEIGHTS_3D[city['key']]
-        b = read(path, crs, bbox_m, layer=layer)
-        b = b.rename(columns={'height_m': 'z1', 'min_height_m': 'z0'})
-    else:
-        b = read(city['osm_dir'] / 'buildings.gpkg', crs, bbox_m)
-        h = pd.to_numeric(b.get('height'), errors='coerce')
-        lv = pd.to_numeric(b.get('building_levels'), errors='coerce')
-        b['z1'] = h.fillna(lv * LEVEL_M).fillna(DEFAULT_M)
-        b['z0'] = pd.to_numeric(b.get('min_height'), errors='coerce')
+    # Geometry + heights (OSM basemap, buildings and building:part)
+    b = read(city['osm_dir'] / 'buildings.gpkg', crs, bbox_m)
     b['osm_id'] = b['osm_id'].astype('int64')
     b = b[~b['osm_id'].isin(underground) & b.geometry.notna()]
-    b = b[b.geometry.geom_type.isin(['Polygon', 'MultiPolygon'])]
-    b['z0'] = b['z0'].fillna(0.0).clip(lower=0)
-    b['z1'] = b['z1'].fillna(DEFAULT_M)
+    b = b[b.geometry.geom_type.isin(['Polygon', 'MultiPolygon'])].copy()
+    num = lambda c: pd.to_numeric(b[c], errors='coerce') if c in b else pd.Series(np.nan, b.index)  # noqa: E731
+    h, lv = num('height'), num('building_levels')
+    b['z1'] = h.fillna(lv * LEVEL_M).fillna(DEFAULT_M)
+    b['z0'] = num('min_height').fillna(num('building_min_level') * LEVEL_M).fillna(0.0).clip(lower=0)
+    if 'building' in b:  # roofs/carports without heights: a thin slab at 3.5-4 m, not a 9 m block
+        roof = b['building'].isin(['roof', 'carport']) & h.isna()
+        b.loc[roof, 'z1'] = 4.0
+        b.loc[roof & (b['z0'] == 0), 'z0'] = 3.5
     b = b[b['z1'] > b['z0'] + 0.1]
-    rp = b.geometry.representative_point()
-    b = b[rp.within(crop)]
+    b = b[b.geometry.representative_point().within(crop)]
+    is_part = b['building_part'].notna() if 'building_part' in b else pd.Series(False, b.index)
+    parents, parts = b[~is_part], b[is_part]
 
-    # max_trips: own osm_id, else the footprint the part's point lies in
+    # Which parent does each part belong to (its point in the parent's footprint; largest parent wins)
+    # (plain arrays: GeoDataFrame aligns a geometry Series by label, a dict of Index by position)
+    pp = gpd.sjoin(gpd.GeoDataFrame({'pid': parts.index.values},
+                                    geometry=parts.geometry.representative_point().values, crs=crs),
+                   gpd.GeoDataFrame({'parent': parents.index.values, 'parea': parents.area.values},
+                                    geometry=parents.geometry.values, crs=crs),
+                   predicate='within', how='inner').sort_values('parea').drop_duplicates('pid', keep='last')
+    part_parent = pp.set_index('pid')['parent']
+    # Parents mostly covered by their parts are drawn by the parts only
+    drop = []
+    for parent, pids in pp.groupby('parent')['pid']:
+        g = parents.geometry.loc[parent]
+        cover = parts.geometry.loc[pids.values].union_all().intersection(g).area if hasattr(parts.geometry, 'union_all') \
+            else parts.geometry.loc[pids.values].unary_union.intersection(g).area
+        if cover >= PARTS_COVER * g.area:
+            drop.append(parent)
+
+    # max_trips per parent: own osm_id in the poster's buildings file, else the footprint it lies in
     f_idx = freq.set_index('osm_id')
-    b['trips'] = b['osm_id'].map(f_idx['max_trips'])
-    b['big'] = b['osm_id'].map(f_idx['big'])
-    miss = b['trips'].isna()
+    trips = parents['osm_id'].map(f_idx['max_trips'])
+    big = parents['osm_id'].map(f_idx['big'])
+    miss = trips.isna()
     if miss.any():
-        pts = gpd.GeoDataFrame(geometry=b.loc[miss].geometry.representative_point(), crs=crs)
+        pts = gpd.GeoDataFrame(geometry=parents.loc[miss].geometry.representative_point(), crs=crs)
         j = gpd.sjoin(pts, freq[['max_trips', 'big', 'geometry']], predicate='within', how='left')
         j = j.groupby(level=0).agg({'max_trips': 'max', 'big': 'max'})
-        b.loc[miss, 'trips'] = j['max_trips']
-        b.loc[miss, 'big'] = j['big']
-    print(f"  {len(b):,} buildings/parts; frequency by id {(~miss).sum():,}, "
-          f"by location {(miss & b['trips'].notna()).sum():,}, none {b['trips'].isna().sum():,}")
+        trips[miss], big[miss] = j['max_trips'], j['big']
+    # parts: the parent's value; orphans: own id, else location
+    p_trips = part_parent.map(trips).reindex(parts.index)
+    p_big = part_parent.map(big).reindex(parts.index)
+    orphan = p_trips.isna()
+    if orphan.any():
+        p_trips[orphan] = parts.loc[orphan, 'osm_id'].map(f_idx['max_trips'])
+        p_big[orphan] = parts.loc[orphan, 'osm_id'].map(f_idx['big'])
+        still = p_trips.isna()
+        if still.any():
+            pts = gpd.GeoDataFrame(geometry=parts.loc[still].geometry.representative_point(), crs=crs)
+            j = gpd.sjoin(pts, freq[['max_trips', 'big', 'geometry']], predicate='within', how='left')
+            j = j.groupby(level=0).agg({'max_trips': 'max', 'big': 'max'})
+            p_trips[still], p_big[still] = j['max_trips'], j['big']
+    parents = parents.assign(trips=trips, big=big).drop(index=drop)
+    parts = parts.assign(trips=p_trips, big=p_big)
+    b = pd.concat([parents, parts])
+    print(f"  {len(parents):,} buildings + {len(parts):,} parts ({len(drop):,} buildings drawn by their parts, "
+          f"{orphan.sum():,} parts with no parent or an uncoloured one); no frequency: {b['trips'].isna().sum():,}")
     b['trips'] = b['trips'].fillna(0).astype(int)
     b['big'] = b['big'].fillna(0).astype(bool)
+    if args.detail_bounds:  # far background: simpler outlines
+        d0, d1, d2, d3 = (float(v) for v in args.detail_bounds.split(','))
+        inner = box(cx + d0, cy + d1, cx + d2, cy + d3)
+        far = ~b.geometry.representative_point().within(inner)
+        b.loc[far, 'geometry'] = b.loc[far].geometry.simplify(FAR_SIMPLIFY_M)
+        print(f"  far background: {far.sum():,} outlines simplified by {FAR_SIMPLIFY_M:g} m")
 
     col = poster_colours(city['key'])
     classes = col['classes']
@@ -223,17 +267,32 @@ def main():
         ground['railways'] = ground_polys(rail.set_geometry(rail.geometry.buffer(1.5, cap_style=2)), crop, cx, cy)
     ground['base'] = rings(crop, cx, cy)
 
+    # 2D coverage tint: the poster's coverage classes (composited colour + alpha), per class
+    cov = read(data / 'coverage_map_gates.gpkg', crs, bbox_m)
+    attr = 'deduped_trips' if 'deduped_trips' in cov else 'max_trips'
+    cov_classes = col['coverage_classes']
+    cup = np.array([hi for _, hi, _, _ in cov_classes])
+    ck = np.searchsorted(cup, cov[attr].to_numpy(), side='left')
+    cov = cov.assign(k=ck)[(cov[attr].to_numpy() > cov_classes[0][0]) & (ck < len(cov_classes))]
+    coverage_palette = []
+    for k, (lo, hi, rgb, alpha) in enumerate(cov_classes):
+        sub = cov[cov['k'] == k]
+        if len(sub):
+            ground[f'coverage_{k}'] = ground_polys(sub, crop, cx, cy, tile=500.0)
+        coverage_palette.append([*rgb, round(alpha, 4)])
+
     out_dir = HERE / 'scenes' / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
     scene = {'city': city['key'], 'crs': crs, 'center_lonlat': [lon, lat], 'center_xy': [cx, cy],
              'radius': r, 'bbox_local': [round(v, 1) for v in (bbox_m[0] - cx, bbox_m[1] - cy, bbox_m[2] - cx, bbox_m[3] - cy)], 'shape': args.shape, 'data': str(data),
              'palette': palette, 'class_labels': ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes],
-             'colours': {k: v for k, v in col.items() if k != 'classes'},
-             'buildings': buildings, 'ground': ground}
+             'colours': {k: v for k, v in col.items() if k not in ('classes', 'coverage_classes')},
+             'coverage_palette': coverage_palette, 'buildings': buildings, 'ground': ground}
     out = out_dir / 'scene.json'
     out.write_text(json.dumps(scene, separators=(',', ':')))
     print(f"  wrote {out} ({out.stat().st_size / 1e6:.1f} MB): {len(buildings):,} building polygons, "
-          + ', '.join(f'{k} {len(v)}' for k, v in ground.items()))
+          + ', '.join(f'{k} {len(v)}' for k, v in ground.items() if not k.startswith('coverage_'))
+          + f", coverage {sum(len(v) for k, v in ground.items() if k.startswith('coverage_'))}")
     print('  class counts: ' + ' '.join(f'{k}:{n}' for k, n in zip(*np.unique(cls, return_counts=True))))
 
 

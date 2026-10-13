@@ -75,7 +75,8 @@ def style_value(flag, style=STYLE):
 def poster_colours(city_key):
     """Poster colours as 0-255 RGB tuples, for other renderers (3d/): building classes
     [(lower, upper, rgb)] (QGIS semantics: lower < max_trips <= upper), uncovered buildings,
-    background, green, forest and each --recolor layer. Same code path as render_qgis_style."""
+    background, green, forest and each --recolor layer; coverage_classes [(lower, upper, rgb, alpha)]
+    = the coverage fill as composited on the poster (draw rgb at alpha over the background). Same code path as render_qgis_style."""
     import render_qgis_style as rq
     city = get_city(city_key)
     tmpl = city if 'qgis_layout' in city else get_city(city.get('template', 'krakow'))
@@ -90,12 +91,22 @@ def poster_colours(city_key):
                      float(style_value('--min-lightness')), float(style_value('--min-lightness-step')))
     br = rq.building_renderer(r, float(style_value('--building-shade')),
                               float(style_value('--building-saturation')))
+    # Coverage fill as on the poster: lightness floor, then alpha = class x symbol x layer x fade
+    fade = float(style_value('--coverage-fade'))
+    bg = tuple(int(v) / 255 for v in style_value('--bg-rgb').split(','))
+    rq.floor_fill_lightness(r, cov['opacity'] * fade, bg, float(style_value('--min-fill-lightness')))
+    coverage = []
+    for lo, hi, sym, _, _ in r['ranges']:
+        fill = next(p for c, p in r['symbols'][sym]['layers'] if c == 'SimpleFill')
+        c = rq.parse_color(fill['color'])
+        coverage.append((lo, hi, tuple(int(round(v * 255)) for v in c[:3]),
+                         c[3] * r['symbols'][sym]['alpha'] * cov['opacity'] * fade))
     classes = []
     for lo, hi, sym, _, _ in br['ranges']:
         fill = next(p for c, p in br['symbols'][sym]['layers'] if c == 'SimpleFill')
         classes.append((lo, hi, tuple(int(v) for v in fill['color'].split(',')[:3])))
     rgb = lambda s: tuple(int(v) for v in s.split(','))  # noqa: E731
-    out = {'classes': classes, 'uncovered': rgb(style_value('--uncovered-rgb')),
+    out = {'classes': classes, 'coverage_classes': coverage, 'uncovered': rgb(style_value('--uncovered-rgb')),
            'background': rgb(style_value('--bg-rgb')), 'green': rgb(style_value('--green-rgb')),
            'forest': rgb(style_value('--forest-rgb'))}
     for spec in style_value('--recolor'):
