@@ -26,9 +26,9 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 
 **2026-10-13: Berlin zoomed in** (`render_frame` = 80 % of the bbox, 37.0 x 31.0 km; isochrones
 unchanged, still pre-fix) and its 300 dpi final, JPEG and the collage redone. **Sketches** restyled
-for the LinkedIn panel (`sketch_access.py --paths none --building-status`): green public / pale-green
-residents-only walk areas, reached buildings dark green, unreached hatched, red square = closed gate,
-ring = open gate, blue stops, legend box; `--center`, `--cached` (reuses the last `--recompute`).
+for the LinkedIn panel (`sketch_access.py --paths none --building-status`): lavender public / pale-lavender
+residents-only walk areas, reached buildings deep purple, unreached hatched, red square = closed gate,
+ring = open gate, yellow stops, legend box; `--center`, `--cached` (reuses the last `--recompute`).
 Panel planned: Plac Wilsona, Cichy Kącik, San Francisco stairs/hills, Times Square.
 
 **2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
