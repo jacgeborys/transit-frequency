@@ -127,9 +127,9 @@ def main():
         res_only = res.geometry.unary_union
         if pub_u is not None:
             res_only = res_only.difference(pub_u)
-        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f8d3e2' if args.building_status else '#f8cfe0')
+        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#dcefd6' if args.building_status else '#f8cfe0')
     if pub_u is not None:
-        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#ee9fbf' if args.building_status else '#d96b97')
+        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#a9d8a4' if args.building_status else '#d96b97')
     plt.rcParams['hatch.linewidth'] = 0.6
     if args.building_status:
         # A building counts as reached when the walk area touches it (as in 05)
@@ -137,7 +137,7 @@ def main():
         res_u = res.geometry.unary_union if len(res) else None
         hit = hit_pub | (bld.intersects(res_u) if res_u is not None else False)
         # One colour for every reached building: the surface shows who may walk there
-        bld[hit].plot(ax=ax, color='#c2185b')
+        bld[hit].plot(ax=ax, color='#2b8a3e')
         bld[~hit].plot(ax=ax, facecolor='white', edgecolor='#a8a8a8', hatch='//////', lw=0)
     else:
         # Buildings as a pale grey hatch on top of the isochrones (the walk area shows through)
@@ -164,7 +164,7 @@ def main():
     closed = gt[gt.osm_id.astype('int64').isin(closed_gate_ids(osm, crs))]
     opened = gt[~gt.index.isin(closed.index)]
     if len(opened):
-        opened.plot(ax=ax, color='white', edgecolor='#2e7d32', linewidth=1.6, marker='o', markersize=34, zorder=4)
+        opened.plot(ax=ax, color='white', edgecolor='#263238', linewidth=1.6, marker='o', markersize=34, zorder=4)
     if len(closed):
         closed.plot(ax=ax, color='#e53935', edgecolor='white', linewidth=1.0, marker='s', markersize=30, zorder=4)
     if args.highlight:
@@ -180,17 +180,17 @@ def main():
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     bs = args.building_status
-    handles = [Patch(color='#ee9fbf' if bs else '#d96b97', label='5-min walk, public'),
-               Patch(color='#f8d3e2' if bs else '#f8cfe0', label='5-min walk, residents only')]
+    handles = [Patch(color='#a9d8a4' if bs else '#d96b97', label='5-min walk, public'),
+               Patch(color='#dcefd6' if bs else '#f8cfe0', label='5-min walk, residents only')]
     if bs:
-        handles += [Patch(color='#c2185b', label='building reached'),
+        handles += [Patch(color='#2b8a3e', label='building reached'),
                     Patch(facecolor='white', edgecolor='#a8a8a8', hatch='//////', label='building not reached')]
     if args.paths == 'all':
         handles += [Line2D([], [], color='#2e9d4a', lw=1.5, label='public path'),
                     Line2D([], [], color='orange', lw=2, label='private way')]
     handles += [Line2D([], [], color='#263238', lw=1.2, label='fence / wall'),
                 Line2D([], [], ls='', marker='s', ms=7, mfc='#e53935', mec='white', label='closed gate'),
-                Line2D([], [], ls='', marker='o', ms=7, mfc='white', mec='#2e7d32', mew=1.6, label='open gate'),
+                Line2D([], [], ls='', marker='o', ms=7, mfc='white', mec='#263238', mew=1.6, label='open gate'),
                 Line2D([], [], ls='', marker='o', ms=11, mfc='#1565c0', mec='white', mew=1.8, label='stop')]
     if args.highlight:
         handles.append(Patch(facecolor='none', edgecolor='#1565c0', hatch='///', label='highlighted'))
