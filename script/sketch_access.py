@@ -73,6 +73,10 @@ def main():
                         help='Recompute these stops with the current rules instead of reading the city files')
     parser.add_argument('--suffix', default='', help='Appended to the output file name')
     parser.add_argument('--center', help='View centre "lat,lon" (default: mean of the stops)')
+    parser.add_argument('--paths', choices=['all', 'streets', 'none'], default='all',
+                        help='all = public paths green + private orange; streets = pale streets only; none')
+    parser.add_argument('--building-status', action='store_true',
+                        help='Fill buildings by result: reached (dark), residents-only (mid), not reached (hatch)')
     parser.add_argument('--cached', action='store_true',
                         help='Reuse the isochrones the last --recompute of these stops saved')
     parser.add_argument('data_folder', nargs='?')
@@ -123,12 +127,21 @@ def main():
         res_only = res.geometry.unary_union
         if pub_u is not None:
             res_only = res_only.difference(pub_u)
-        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#f8cfe0')
+        gpd.GeoSeries([res_only], crs=crs).plot(ax=ax, color='#fbe6ef' if args.building_status else '#f8cfe0')
     if pub_u is not None:
-        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#d96b97')
-    # Buildings as a pale grey hatch on top of the isochrones (the walk area shows through)
+        gpd.GeoSeries([pub_u], crs=crs).plot(ax=ax, color='#f2b8cf' if args.building_status else '#d96b97')
     plt.rcParams['hatch.linewidth'] = 0.6
-    bld.plot(ax=ax, facecolor='none', edgecolor='#a8a8a8', hatch='//////', lw=0)
+    if args.building_status:
+        # A building counts as reached when the walk area touches it (as in 05)
+        hit_pub = bld.intersects(pub_u) if pub_u is not None else pd.Series(False, index=bld.index)
+        res_u = res.geometry.unary_union if len(res) else None
+        hit_res = (bld.intersects(res_u) if res_u is not None else pd.Series(False, index=bld.index)) & ~hit_pub
+        bld[hit_pub].plot(ax=ax, color='#c2185b')
+        bld[hit_res].plot(ax=ax, color='#ef7fab')
+        bld[~hit_pub & ~hit_res].plot(ax=ax, facecolor='white', edgecolor='#a8a8a8', hatch='//////', lw=0)
+    else:
+        # Buildings as a pale grey hatch on top of the isochrones (the walk area shows through)
+        bld.plot(ax=ax, facecolor='none', edgecolor='#a8a8a8', hatch='//////', lw=0)
     bld.boundary.plot(ax=ax, color='#4a4a4a', lw=0.6)  # outlines on top of the isochrones
     fen = gpd.read_file(osm / 'barriers.gpkg', bbox=b4).to_crs(crs)
     if len(fen):
@@ -139,9 +152,13 @@ def main():
     # Public walkable ways in green: streets + the public minor ways
     rd = gpd.read_file(osm / 'roads.gpkg', bbox=b4).to_crs(crs)
     rd = rd[~rd.highway.isin(['motorway', 'motorway_link', 'trunk', 'trunk_link'])]
-    paths = pd.concat([rd.geometry, pw[~is_priv].geometry])
-    paths[paths.geom_type.isin(['LineString', 'MultiLineString'])].plot(ax=ax, color='#2e9d4a', lw=1.1)
-    if len(priv):
+    lines = ['LineString', 'MultiLineString']
+    if args.paths == 'all':
+        paths = pd.concat([rd.geometry, pw[~is_priv].geometry])
+        paths[paths.geom_type.isin(lines)].plot(ax=ax, color='#2e9d4a', lw=1.1)
+    elif args.paths == 'streets':
+        rd[rd.geom_type.isin(lines)].plot(ax=ax, color='#9e9e9e', lw=1.0, alpha=0.6, zorder=1.5)
+    if len(priv) and args.paths == 'all':
         priv.plot(ax=ax, color='orange', lw=2)
     gt = gpd.read_file(osm / 'gates.gpkg', bbox=b4).to_crs(crs)
     closed = gt[gt.osm_id.astype('int64').isin(closed_gate_ids(osm, crs))]
@@ -156,8 +173,11 @@ def main():
     ax.set_ylim(bb[1], bb[3])
     ax.set_axis_off()
     name = args.name or st['stop_name'].iloc[0]
-    ax.set_title(f'{name} ({city["name"]}): dark = public isochrones, pale = residents-only, '
-                 f'green = public paths, blue = fences, orange = private ways, red x = closed gates, * = stops'
+    legend = (['dark = public isochrones', 'pale = residents-only']
+              + (['filled buildings = reached (dark) / residents-only (mid)'] if args.building_status else [])
+              + (['green = public paths', 'orange = private ways'] if args.paths == 'all' else [])
+              + ['blue = fences', 'red x = closed gates', '* = stops'])
+    ax.set_title(f'{name} ({city["name"]}): ' + ', '.join(legend)
                  + (', blue hatch = highlighted' if args.highlight else ''), fontsize=9)
     import unicodedata
     ascii_name = unicodedata.normalize('NFKD', name.lower().replace('ł', 'l')).encode('ascii', 'ignore').decode()
