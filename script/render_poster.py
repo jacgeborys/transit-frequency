@@ -34,6 +34,7 @@ STYLE = [
     '--page-rgb', '0,0,0', '--ink-rgb', '225,225,232',
     '--palette', 'bmy_dark', '--min-lightness', '40', '--min-lightness-step', '1.6', '--palette-extend', '#fff38a,#fffbd6',
     '--scale-bar', '--north-arrow', '--legend-scale-auto',
+    '--roads-under-buildings',  # coloured buildings over streets/railways (2026-10-13)
 ]
 
 PL = {'headline': 'Ile odjazdów masz w zasięgu 5 minut pieszo?',
@@ -63,8 +64,7 @@ POSTER = {
     'sanfrancisco': {'city': 'SAN FRANCISCO', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'manhattan': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
     'newyork': {'city': 'NEW YORK', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
-    'boston': {'city': 'BOSTON', **EN, 'subline': 'weekday · Wednesday, October 14, 2026',
-               'extra': ['--roads-under-buildings']},
+    'boston': {'city': 'BOSTON', **EN, 'subline': 'weekday · Wednesday, October 14, 2026'},
 }
 
 
