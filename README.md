@@ -35,6 +35,15 @@ recomputed with the current rules). **Fences on multipolygon relations** were ne
 "Małe Błonia", Kraków): fetcher fixed; `add_barrier_relations.py --city X` patches an existing
 basemap (done for Kraków: 25). Maps pick it up only with an iso rerun (not done; all cities affected).
 
+**2026-10-13: Boston added** (`--city boston`, date 14.10.2026, MBTA feed "Fall 2026"): Boston core +
+Cambridge, Somerville, Brookline, Charlestown, East Boston/Logan, south to Dorchester/Jamaica Plain,
+15.6 x 14.8 km in UTM 19N, legend over Dorchester Bay, no hills. From scratch in 30 min (osm extract
+10, basemap 5, iso 6, preview 3). 3,226 stops, 256k departures 06-22 h. Massachusetts coastline
+complete (harbour/Charles checked). Stop check: Government Center in a station island (walk fine,
+31.6 ha); **Boston Landing skipped**: its platform paths connect only to `highway=construction`
+ways in OSM (38 departures, left as is). 150 dpi preview `png/previews/boston_poster_150.png`;
+no 300 dpi final yet.
+
 **2026-10-12: Paris added** (`--city paris`, date 14.10.2026, IDFM regional feed): Paris + inner ring
 (La Défense .. Vincennes, Saint-Denis .. Ivry), 22.1 x 15.4 km in Lambert-93, French header.
 From scratch in 83 min (osm extract 12, basemap 18, iso 18, coverage 9, preview 11). 8,654 stops,
