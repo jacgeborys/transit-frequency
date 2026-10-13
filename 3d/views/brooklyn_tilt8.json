@@ -12,10 +12,15 @@
  "lens": 35,
  "source": "computed (Prospect Park -> Brooklyn Bridge)",
  "from": "defaults",
- "note": "brooklyn (user favourite, nyc_02) looking 8 deg lower: hides the uncoloured Manhattan north of Harlem",
+ "note": "brooklyn (user favourite, nyc_02) looking 8 deg lower: hides the uncoloured Manhattan north of Harlem; user pick 2026-10-13: build with --haze-start 7000 --haze-scale 9000, no bloom (nyc_04_haze7k)",
  "far_blur": [
   11000,
   22000,
   0.003
- ]
+ ],
+ "build": {
+  "haze_start": 7000,
+  "haze_scale": 9000,
+  "bloom": 0
+ }
 }
