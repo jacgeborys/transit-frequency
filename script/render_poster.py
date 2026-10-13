@@ -20,34 +20,42 @@ from pathlib import Path
 
 from cities import get_city, PROJECT_DIR
 
-# Shared dark style (see README "Dark mode" / "Posters")
+# Shared dark style (see README "Style"). 2026-10-13 "E" (style lab, png/style_lab/): Schwarzplan look,
+# buildings lead; land grey 12 with pitch-black roads; no parks/rails; walk-area fill 0.30 (the trace of
+# the path/fence analysis); 25 classes up to 3500+; saturation 1.35; "paint spill" outlines; compact legend
+FINE_BREAKS = '1,5,10,25,50,75,100,125,150,200,250,300,400,500,600,700,800,1000,1250,1500,1750,2000,2500,3000,3500'  # top 3500+ (above: ~1 %, Berlin)
+LEGEND_TICKS = '1,10,50,100,250,500,1000,2000,4000'  # continuous ramp, labelled at round values only
+HIDDEN_LAYERS = ['railways', 'parks', 'forests', 'grass', 'meadow', 'allotments', 'cemeteries', 'leisure',
+                 'leisure_relations', 'waterways']
 STYLE = [
     '--restricted-buildings',
-    '--bg-rgb', '0,0,0', '--green-rgb', '30,44,34', '--forest-rgb', '28,50,37',
-    '--uncovered-rgb', '58,58,64', '--coverage-fade', '0.42', '--min-fill-lightness', '7',
-    '--building-shade', '1.0', '--building-saturation', '1.1',
-    '--road-edge-mm', '0.06', '--road-edge-rgb', '66,68,80',
-    '--recolor', 'water=22,39,63', '--recolor', 'roads=80,82,94',
-    '--recolor', 'railways=100,100,112', '--line-scale', 'railways=0.6',
-    '--recolor', 'buildings=45,46,52',
+    '--bg-rgb', '12,12,14',
+    '--green-rgb', '12,12,14', '--forest-rgb', '12,12,14',  # = land: parks hidden on the poster (3d/ reads these)
+    '--uncovered-rgb', '34,34,38', '--coverage-fade', '0.30', '--min-fill-lightness', '7',
+    '--building-shade', '1.0', '--building-saturation', '1.35',
+    '--road-edge-mm', '0',
+    '--recolor', 'water=14,24,40', '--recolor', 'roads=0,0,0', '--recolor', 'buildings=34,34,38',
+    '--recolor', 'railways=12,12,14',
     '--building-outline-mm', '0.05', '--building-outline-rgb', '95,96,105', '--building-outline-spill', '0.35',
     '--page-rgb', '0,0,0', '--ink-rgb', '225,225,232',
-    '--palette', 'bmy_dark', '--min-lightness', '40', '--min-lightness-step', '1.6', '--palette-extend', '#fff38a,#fffbd6',
-    '--scale-bar', '--north-arrow', '--legend-scale-auto',
-    '--roads-under-buildings',  # coloured buildings over streets/railways (2026-10-13)
-]
+    '--palette', 'bmy_dark', '--min-lightness', '40', '--min-lightness-step', '1.2', '--palette-extend', '#fff38a,#fffbd6',
+    '--breaks', FINE_BREAKS,
+    '--scale-bar', '--north-arrow', '--legend-scale-auto', '--legend-compact', '0.55',
+    '--legend-ticks', LEGEND_TICKS,
+    '--roads-under-buildings',  # coloured buildings over streets (2026-10-13)
+] + sum([['--hide', layer] for layer in HIDDEN_LAYERS], [])
 
-PL = {'headline': 'Ile odjazdów masz w zasięgu 5 minut pieszo?',
+PL = {'headline': 'Ile odjazdów komunikacji masz w zasięgu 5 minut pieszo?',
       'subline': 'dzień powszedni · środa {date}'}
-DE = {'headline': 'Wie viele Abfahrten erreichst du in 5 Minuten zu Fuß?',
+DE = {'headline': 'Wie viele ÖPNV-Abfahrten erreichst du in 5 Minuten zu Fuß?',
       'subline': 'Werktag · Mittwoch, {date}', 'legend_title': 'Abfahrten/Tag'}
-EN = {'headline': 'How many departures within a 5-minute walk?',
+EN = {'headline': 'How many transit departures within a 5-minute walk?',
       'subline': 'weekday · Wednesday {date}', 'legend_title': 'Departures/day'}
-DE_CH = {'headline': 'Wie viele Abfahrten erreichst du in 5 Minuten zu Fuss?',  # Swiss: no ß
+DE_CH = {'headline': 'Wie viele ÖV-Abfahrten erreichst du in 5 Minuten zu Fuss?',  # Swiss: no ß, ÖV not ÖPNV
          'subline': 'Werktag · Mittwoch, {date}', 'legend_title': 'Abfahrten/Tag'}
-NL = {'headline': 'Hoeveel vertrekken binnen 5 minuten lopen?',
+NL = {'headline': 'Hoeveel ov-vertrekken binnen 5 minuten lopen?',
       'subline': 'werkdag · woensdag {date}', 'legend_title': 'Vertrekken/dag'}
-FR = {'headline': 'Combien de départs à 5 minutes à pied ?',
+FR = {'headline': 'Combien de départs de transports en commun à 5 minutes à pied ?',
       'subline': 'jour ouvré · mercredi {date}', 'legend_title': 'Départs/jour'}
 
 POSTER = {
@@ -88,6 +96,8 @@ def poster_colours(city_key):
     cov = next(rq.parse_layer(layers[i], rq.PROJECT_DIR) for i in rq.visible_layer_ids(group)
                if 'coverage_map' in rq.parse_layer(layers[i], rq.PROJECT_DIR)['path'].name)
     r = cov['renderer']
+    breaks = style_value('--breaks')
+    rq.regroup_ranges(r, [float(v) for v in breaks.split(',')] if breaks else None)
     extend = style_value('--palette-extend')
     rq.apply_palette(r, style_value('--palette'), extend.split(',') if extend else None,
                      float(style_value('--min-lightness')), float(style_value('--min-lightness-step')))

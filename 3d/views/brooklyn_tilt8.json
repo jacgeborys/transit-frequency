@@ -1,0 +1,21 @@
+{
+ "location": [
+  2511.9,
+  -5977.1,
+  3500
+ ],
+ "rotation_euler": [
+  1.04187,
+  0.0,
+  0.16078
+ ],
+ "lens": 35,
+ "source": "computed (Prospect Park -> Brooklyn Bridge)",
+ "from": "defaults",
+ "note": "brooklyn (user favourite, nyc_02) looking 8 deg lower: hides the uncoloured Manhattan north of Harlem",
+ "far_blur": [
+  11000,
+  22000,
+  0.003
+ ]
+}

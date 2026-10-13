@@ -225,10 +225,14 @@ def main():
     ap.add_argument('--haze-start', type=float, default=2500, help='m from the camera; no haze closer')
     ap.add_argument('--haze-scale', type=float, default=5000, help='m; 63 %% hazed this far past the start')
     ap.add_argument('--horizon', type=float, default=40000, help='Ground plane size beyond the data, m (0 = none)')
+    ap.add_argument('--bloom', type=float, help="Override the look's compositor bloom (0 = off; day default 0)")
+    ap.add_argument('--suffix', default='', help='Save as scene[_look]_<suffix>.blend (test builds)')
     args = ap.parse_args(argv)
     look = dict(LOOKS[args.look])
     if args.glow is not None:
         look['glow'] = args.glow
+    if args.bloom is not None:
+        look['bloom'] = args.bloom
 
     folder = HERE / 'scenes' / args.name
     scene_data = json.loads((folder / 'scene.json').read_text())
@@ -362,7 +366,8 @@ def main():
                         space.shading.type = 'MATERIAL'
                         space.shading.use_scene_lights = True
                         space.shading.use_scene_world = True
-    out = folder / ('scene.blend' if args.look == 'day' else f'scene_{args.look}.blend')
+    stem = 'scene' if args.look == 'day' else f'scene_{args.look}'
+    out = folder / (f'{stem}_{args.suffix}.blend' if args.suffix else f'{stem}.blend')
     bpy.ops.wm.save_as_mainfile(filepath=str(out))
     print(f"saved {out}")
 

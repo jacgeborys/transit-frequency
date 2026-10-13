@@ -945,9 +945,11 @@ def legend_style(item, name):
 
 
 def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift_mm=0.0,
-                shift_y_mm=0.0, corner=None, map_mm=None, scale=1.0):
+                shift_y_mm=0.0, corner=None, map_mm=None, scale=1.0, compact=1.0, ticks=None):
     """Single-column legend: layer title + one patch per renderer class.
-    scale: every size (fonts, patches, spacing) multiplied, so the legend grows with the poster."""
+    scale: every size (fonts, patches, spacing) multiplied, so the legend grows with the poster.
+    compact < 1: shorter swatches, tighter rows and slightly smaller labels (many classes).
+    ticks: continuous ramp (swatches touch) labelled only at these class lower bounds."""
     box = float(item.get('boxSpace', 2)) * scale
     sw, sh = float(item.get('symbolWidth', 7)) * scale, float(item.get('symbolHeight', 4)) * scale
     title_st = legend_style(item, 'subgroup')
@@ -956,16 +958,29 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     for st in (title_st, sym_st, lab_st):
         for k in ('size', 'marginTop', 'marginLeft'):
             st[k] *= scale
+    if compact != 1.0:
+        sh *= compact
+        sym_st['marginTop'] *= compact * 0.5   # rows nearly touch: reads as one colour ramp
+        lab_st['size'] *= min(1.0, compact + 0.15)
     r = legend_layer['renderer']
     entries = [(lab, r['symbols'][s]) for lo, hi, s, rend, lab in r['ranges']] \
         if r['type'] == 'graduatedSymbol' else \
         [(lab, r['symbols'][s]) for v, s, rend, lab in r['categories']]
+    lows = [lo for lo, *_ in r['ranges']] if r['type'] == 'graduatedSymbol' else [None] * len(entries)
+    ramp = bool(ticks) and r['type'] == 'graduatedSymbol'
+    if ramp:
+        sym_st['marginTop'] = 0.0   # swatches touch: one colour ramp
+        tick_set = set(ticks)
+        last = len(entries) - 1
+        entries = [(f'{lo:g}+' if k == last else (f'{lo:g}' if lo in tick_set else ''), sym)
+                   for k, ((lab, sym), lo) in enumerate(zip(entries, lows))]
 
     pt_to_mm = 25.4 / 72
     title_h = title_st['size'] * pt_to_mm
     row_h = sh + sym_st['marginTop']
     extra = [RESIDENTS_LABEL] if residents else []
-    height = box + title_h + (len(entries) + len(extra)) * row_h + box
+    ramp_gap = lab_st['size'] * pt_to_mm * 0.7 if ramp else 0.0
+    height = box + title_h + ramp_gap + (len(entries) + len(extra)) * row_h + box
     lab_fp = font_props(lab_st['family'], lab_st['size'], lab_st['style'])
     # Width from the longest label
     renderer = fig.canvas.get_renderer()
@@ -975,6 +990,10 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
         text_w = max(text_w, t.get_window_extent(renderer).width / fig.dpi * 25.4)
         t.remove()
     width = box + sw + lab_st['marginLeft'] + text_w + box
+    t = fig.text(0, 0, legend_layer['legend_title'],
+                 fontproperties=font_props(title_st['family'], title_st['size'], title_st['style']))
+    width = max(width, box + t.get_window_extent(renderer).width / fig.dpi * 25.4 + box)
+    t.remove()
 
     x, y, w, h = item_rect(item)
     ref = int(item.get('referencePoint', 0))
@@ -999,7 +1018,7 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     fig.text(*to_fig(x + box, cy), legend_layer['legend_title'], va='top', ha='left',
              fontproperties=font_props(title_st['family'], title_st['size'], title_st['style']),
              zorder=11)
-    cy += title_h
+    cy += title_h + ramp_gap
     for lab, sym in entries:
         cy += sym_st['marginTop']
         cls, p = sym['layers'][0]
@@ -1007,8 +1026,13 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
         fig.add_artist(Rectangle(to_fig(x + box, cy + sh), sw / page_mm[0], sh / page_mm[1],
                                  transform=fig.transFigure, facecolor=color,
                                  edgecolor='none', zorder=11))
-        fig.text(*to_fig(x + box + sw + lab_st['marginLeft'], cy + sh / 2), lab,
-                 va='center', ha='left', fontproperties=lab_fp, zorder=11)
+        if lab:
+            fig.text(*to_fig(x + box + sw + lab_st['marginLeft'], cy + (sh / 2 if ramp and lab.endswith('+') else (0 if ramp else sh / 2))), lab,
+                     va='center', ha='left', fontproperties=lab_fp, zorder=11)
+            if ramp and not lab.endswith('+'):  # tick mark at the class boundary
+                fig.add_artist(Rectangle(to_fig(x + box + sw, cy + 0.08 * scale), 0.9 * scale / page_mm[0],
+                                         0.16 * scale / page_mm[1], transform=fig.transFigure,
+                                         facecolor=INK, edgecolor='none', zorder=11))
         cy += sh
     if residents:
         # Pale swatch: a mid-range class at the residents-only opacity
@@ -1072,6 +1096,10 @@ def main():
                         help="Extra colours past the palette top, e.g. '#fff38a,#fffbd6'")
     parser.add_argument('--north-arrow', action='store_true',
                         help='North arrow (to true north) above the scale bar')
+    parser.add_argument('--legend-ticks', default=None,
+                        help='Continuous legend ramp labelled only at these class lower bounds, e.g. "1,25,100,250,1000,2200"')
+    parser.add_argument('--legend-compact', type=float, default=1.0,
+                        help='Legend row height factor (< 1 = tighter; for many classes, e.g. 0.7)')
     parser.add_argument('--legend-scale-auto', action='store_true',
                         help='Scale the legend with the page (sqrt of page area vs the Krakow layout)')
     parser.add_argument('--min-lightness-step', type=float, default=0.0,
@@ -1539,7 +1567,8 @@ def main():
                     residents=bool(args.residents) and args.residents_legend, shift_mm=legend_shift,
                     shift_y_mm=legend_dy,
                     corner=city.get('legend_corner', 'bottom-right'),  # always flush in a corner
-                    map_mm=(mx, my, mw, mh), scale=leg_scale)
+                    map_mm=(mx, my, mw, mh), scale=leg_scale, compact=args.legend_compact,
+                    ticks=[float(v) for v in args.legend_ticks.split(',')] if args.legend_ticks else None)
 
     legend_rect = locals().get('legend_rect')
     if args.headline_city:
