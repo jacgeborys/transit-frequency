@@ -163,12 +163,6 @@ def main():
                                             'outside, outlines are simplified (far background)')
     ap.add_argument('--big-grey', action='store_true',
                     help="Big buildings (malls, stations, PKIN) grey as on the poster; default: by frequency")
-    ap.add_argument('--values', help='CSV osm_id,value: colour buildings by this value instead of frequency '
-                                     '(parts take their parent\'s value; buildings without one get --nodata-rgb)')
-    ap.add_argument('--breaks', help='with --values: class breaks b1,...,bn (n+1 classes: < b1, b1-b2, ..., >= bn)')
-    ap.add_argument('--colors', help='with --values: n+1 hex colours, low to high')
-    ap.add_argument('--nodata-rgb', help="with --values: r,g,b for buildings without a value (default: poster 'uncovered')")
-    ap.add_argument('--no-coverage', action='store_true', help='Skip the 2D transit coverage tint on the ground')
     args = ap.parse_args()
 
     city = get_city(args.city)
@@ -253,10 +247,8 @@ def main():
             j = gpd.sjoin(pts, freq[['max_trips', 'big', 'geometry']], predicate='within', how='left')
             j = j.groupby(level=0).agg({'max_trips': 'max', 'big': 'max'})
             p_trips[still], p_big[still] = j['max_trips'], j['big']
-    # --values key: a part is looked up under its parent's osm_id (one colour per landmark)
-    p_key = part_parent.map(parents['osm_id']).reindex(parts.index).fillna(parts['osm_id']).astype('int64')
-    parents = parents.assign(trips=trips, big=big, key=parents['osm_id']).drop(index=drop)
-    parts = parts.assign(trips=p_trips, big=p_big, key=p_key)
+    parents = parents.assign(trips=trips, big=big).drop(index=drop)
+    parts = parts.assign(trips=p_trips, big=p_big)
     b = pd.concat([parents, parts])
     print(f"  {len(parents):,} buildings + {len(parts):,} parts ({len(drop):,} buildings drawn by their parts, "
           f"{orphan.sum():,} parts with no parent or an uncoloured one); no frequency: {b['trips'].isna().sum():,}")
@@ -290,21 +282,6 @@ def main():
     t = b['trips'].to_numpy()
     cls = np.searchsorted(uppers, t, side='left') + 1          # lower < t <= upper
     cls = np.where((t > lowers[0]) & ~(args.big_grey & b['big'].to_numpy()), np.minimum(cls, len(classes)), 0)
-    class_labels = ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes] + ['context']
-    if args.values:  # colour by an external per-building value (e.g. flat prices) instead of frequency
-        vals = pd.read_csv(args.values).drop_duplicates('osm_id').set_index('osm_id').iloc[:, 0]
-        v = b['key'].map(vals).to_numpy(dtype=float) if 'key' in b else np.full(len(b), np.nan)
-        brk = [float(x) for x in args.breaks.split(',')]
-        hexes = args.colors.split(',')
-        assert len(hexes) == len(brk) + 1, '--colors needs one more entry than --breaks'
-        nodata = [int(x) for x in args.nodata_rgb.split(',')] if args.nodata_rgb else list(col['uncovered'])
-        palette = [nodata] + [[int(h.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4)] for h in hexes]
-        context_class = len(palette)
-        palette.append(list(CONTEXT_RGB))
-        cls = np.where(np.isnan(v), 0, np.digitize(np.nan_to_num(v), brk) + 1)
-        class_labels = ['no data'] + [f'< {brk[0]:g}'] + [f'{a:g}-{c:g}' for a, c in zip(brk[:-1], brk[1:])] \
-            + [f'>= {brk[-1]:g}', 'context']
-        print(f"  --values: {np.isfinite(v).sum():,} of {len(v):,} building polygons have a value")
     cls = np.where(t < 0, context_class, cls)
 
     buildings = []
@@ -339,8 +316,6 @@ def main():
 
     # 2D coverage tint: the poster's coverage classes (composited colour + alpha), per class
     cov = read(data / 'coverage_map_gates.gpkg', crs, bbox_m)
-    if args.no_coverage:
-        cov = cov.iloc[:0]
     attr = 'deduped_trips' if 'deduped_trips' in cov else 'max_trips'
     # Pixel-sized holes of the barrier-aware raster (the 2D poster blurs them away; in 3D they show
     # as dark shards): enclosed gaps < SMALL_GAP_M2 take the highest neighbouring value. Larger
@@ -370,7 +345,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     scene = {'city': city['key'], 'crs': crs, 'center_lonlat': [lon, lat], 'center_xy': [cx, cy],
              'radius': r, 'bbox_local': [round(v, 1) for v in (bbox_m[0] - cx, bbox_m[1] - cy, bbox_m[2] - cx, bbox_m[3] - cy)], 'shape': args.shape, 'data': str(data),
-             'palette': palette, 'context_class': context_class, 'class_labels': class_labels,
+             'palette': palette, 'context_class': context_class, 'class_labels': ['0'] + [f'{lo:g}-{hi:g}' for lo, hi, _ in classes] + ['context'],
              'colours': {k: v for k, v in col.items() if k not in ('classes', 'coverage_classes')},
              'coverage_palette': coverage_palette, 'buildings': buildings, 'ground': ground}
     out = out_dir / 'scene.json'

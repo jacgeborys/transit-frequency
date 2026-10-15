@@ -157,10 +157,6 @@ blender --background --factory-startup --python 3d/build_blend.py -- --name nyc_
 
 ## Status
 
-- 2026-10-15: **colour by any per-building value** (`export_scene.py --values <csv osm_id,value> --breaks ...
-  --colors <hex,...> [--nodata-rgb r,g,b] --no-coverage`): replaces the frequency classes (parts take their
-  parent's value; no value = palette[0]). Used by the housing-price project (`D:/QGIS/ceny_mieszkan/export_3d_values.py`
-  writes the CSV and prints the command): scene `prices_wide` (same bounds as `warsaw_wide`, views fit).
 - 2026-10-12: folder + plan created.
 - 2026-10-12: Blender 5.2.2 installed; pipeline works end to end. First drafts of central Warsaw
   (3x3 km around PKIN, 6,876 building polygons, 195k faces): `png/previews/3d_warsaw_draft{1,2}.png`,
