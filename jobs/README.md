@@ -17,3 +17,11 @@ borrowing the nearest routed cell within 375 m, so many buildings stayed grey.
 
 Poster: same `STYLE` as `script/render_poster.py`, 25 classes 1..650+ thousand jobs, no walk-area fill (250 m
 cells would show as blocks).
+
+## Status (2026-10-25)
+Full run done: `travel_times_all.py --scenario am_peak` routed all 10,097 cells in 80 min (R5 network cached in
+%LOCALAPPDATA%/r5py from the ceny_mieszkan run; ~0.5 s per cell). Median cell: 6,959 jobs within 30 min (the
+priced-only cells: 56k; the new cells are mostly suburban). Poster: 253,313 buildings coloured from their own cell;
+the rest reach no jobs within 30 min. 150 dpi preview `renders/warsaw_jobs_30_am_peak_150.png` (4.5 min).
+Next if wanted: 300 dpi final (`--dpi 300`), other windows (`--scenario midday|evening|saturday`, each needs its
+own routing run first), `--measure jobs_45`, a 125 m grid (~32k cells, ~4 h).
