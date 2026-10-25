@@ -169,26 +169,34 @@ def per_building(bld, iso, line, dirr, nightr, newtram, log):
         newt = (rasterize(zip(geoms[nt_iso[sel]], nt_val[sel]), out_shape=(h, w), transform=tr,
                           dtype='int32') if sel.any() else np.zeros((h, w), 'int32'))
 
-        bid = rasterize(zip(bgeoms[bi], bids[bi]), out_shape=(h, w), transform=tr,
-                        dtype='int32', all_touched=True)
-        mask = bid > 0
-        b = bid[mask] - 1
-        tot = sum(dep[m] for m in MODES)[mask]
-        # best cell per building: most departures (first one on ties)
-        o = np.lexsort((-tot, b))
-        bs, first = np.unique(b[o], return_index=True)
-        cell = o[first]
-        better = tot[cell] > best[bs]
-        upd, cu = bs[better], cell[better]
-        best[upd] = tot[cu]
-        for m in MODES:
-            res[f'dep_{m}'][upd] = dep[m][mask][cu]
-            res[f'lines_{m}'][upd] = lines[m][mask][cu]
-        res['dep_all'][upd] = tot[cu]
-        res['lines_all'][upd] = sum(res[f'lines_{m}'][upd] for m in MODES)
-        for k, grid in (('line_all', line_all), ('night_dep', night), ('night_lines', nlines),
-                        ('newtram', newt)):
-            np.maximum.at(res[k], b, grid[mask].astype(res[k].dtype))
+        total = sum(dep[m] for m in MODES)
+        todo = bi
+        while len(todo):
+            # Overlapping buildings (duplicated outlines, parts) hide each other in one raster:
+            # the ones left without a cell get another pass on their own
+            bid = rasterize(zip(bgeoms[todo], bids[todo]), out_shape=(h, w), transform=tr,
+                            dtype='int32', all_touched=True)
+            mask = bid > 0
+            b = bid[mask] - 1
+            if len(b) == 0:
+                break
+            tot = total[mask]
+            # best cell per building: most departures (first one on ties)
+            o = np.lexsort((-tot, b))
+            bs, first = np.unique(b[o], return_index=True)
+            cell = o[first]
+            better = tot[cell] > best[bs]
+            upd, cu = bs[better], cell[better]
+            best[upd] = tot[cu]
+            for m in MODES:
+                res[f'dep_{m}'][upd] = dep[m][mask][cu]
+                res[f'lines_{m}'][upd] = lines[m][mask][cu]
+            res['dep_all'][upd] = tot[cu]
+            res['lines_all'][upd] = sum(res[f'lines_{m}'][upd] for m in MODES)
+            for k, grid in (('line_all', line_all), ('night_dep', night), ('night_lines', nlines),
+                            ('newtram', newt)):
+                np.maximum.at(res[k], b, grid[mask].astype(res[k].dtype))
+            todo = np.setdiff1d(todo, bs)
         if ti % 20 == 0:
             log(f"    tile {ti}/{len(tiles)} ({time.time() - t0:.0f}s)")
     return res
