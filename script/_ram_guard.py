@@ -29,8 +29,12 @@ def log(msg):
 def chain_procs(patterns):
     """Matching python processes and all their descendants (Pool workers)."""
     out = {}
+    import os
+    me = {os.getpid(), os.getppid()}   # the guard's own command line holds the patterns too
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
+            if p.pid in me or '_ram_guard' in ' '.join(p.info['cmdline'] or []):
+                continue
             cmd = ' '.join(p.info['cmdline'] or [])
             if 'python' in (p.info['name'] or '').lower() and any(s in cmd for s in patterns):
                 out[p.pid] = p
