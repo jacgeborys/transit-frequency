@@ -18,7 +18,7 @@ python render_poster.py --city paris --date 14.10.2026 --data ..\_data\paris\202
 if errorlevel 1 (echo %date% %time% RERENDER_ALL paris FAILED >> ..\png\log_buildings_final.txt) else (echo %date% %time% RERENDER_ALL paris done >> ..\png\log_buildings_final.txt)
 python render_poster.py --city sanfrancisco --date 14.10.2026 --data ..\_data\sanfrancisco\2026_10_11 --dpi 300 >> ..\png\rerender_all_300.txt 2>&1
 if errorlevel 1 (echo %date% %time% RERENDER_ALL sanfrancisco FAILED >> ..\png\log_buildings_final.txt) else (echo %date% %time% RERENDER_ALL sanfrancisco done >> ..\png\log_buildings_final.txt)
-python render_poster.py --city warsaw --date 07.10.2026 --data ..\_data\warsaw\2026_10_04 --dpi 300 >> ..\png\rerender_all_300.txt 2>&1
+python render_poster.py --city warsaw --date 07.10.2026 --data ..\_data\warsaw\2026_10_04 --coverage ..\_data\warsaw\2026_10_04\coverage_map_gates_mb.gpkg --buildings ..\_data\warsaw\2026_10_04\buildings_gates_mb.gpkg --dpi 300 >> ..\png\rerender_all_300.txt 2>&1
 if errorlevel 1 (echo %date% %time% RERENDER_ALL warsaw FAILED >> ..\png\log_buildings_final.txt) else (echo %date% %time% RERENDER_ALL warsaw done >> ..\png\log_buildings_final.txt)
 python render_poster.py --city newyork --date 14.10.2026 --data ..\_data\newyork\2026_10_11 --dpi 300 >> ..\png\rerender_all_300.txt 2>&1
 if errorlevel 1 (echo %date% %time% RERENDER_ALL newyork FAILED >> ..\png\log_buildings_final.txt) else (echo %date% %time% RERENDER_ALL newyork done >> ..\png\log_buildings_final.txt)

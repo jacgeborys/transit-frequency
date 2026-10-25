@@ -24,7 +24,7 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 
 ## Status (2026-10-25)
 
-**2026-10-25: per-building access by mode for Warsaw (in progress)**, for the housing-price model in
+**2026-10-25: per-building access by mode for Warsaw (done)**, for the housing-price model in
 `D:\QGIS\ceny_mieszkan`. New `06_building_modes.py` -> `_data/warsaw/2026_10_04/buildings_modes.gpkg`
 (one row per building, `osm_id` as in `buildings_gates.gpkg`): for 5 and 10 min, departures 06-22 and
 distinct lines by mode (metro/tram/bus/rail; KM `_BUS` = bus), each line *and direction* once at its best
@@ -39,7 +39,21 @@ bridges/in tunnels) and ground-level major roads block the 50 m raster spread ex
 crossings in the network: `02` now records them (Warsaw rebuilt from its tile cache; old pickle kept as
 `walking_network_2026_10_06.pkl.bak`). `03 --minutes N` for other walking times (`_<N>min`). `01`'s
 filtering moved into `load_departures()` (reused by 06). Network-level effect in Warsaw: 96 % of stops
-unchanged, trip-weighted reach -1 %. Run: `script/run_warsaw_modes.cmd` (03 mb 5 min, 03 mb 10 min, 06).
+unchanged, trip-weighted reach -1 %. Run: `script/run_warsaw_modes.cmd` (03 mb 5 min, 03 mb 10 min, 06; 03 5 min 8 min,
+03 10 min 34 min, 06 51 min; 12 workers, `_ram_guard.py` suspends/resumes the largest chain process when
+available RAM < 1 GB / > 3 GB). Result (`buildings_modes_report.txt`): 322,958 buildings; method check vs
+05's max_trips on the same isochrones 98.6 % exact (corr 0.995; rest = 2 m vs 3 m grid); new isochrones,
+same rule 86.8 % exact, mean +3.5 %; per direction, departures only: median 237 vs 133 (x1.63).
+Overlapping building outlines hid each other in one raster (0 departures): 06 gives them extra passes.
+Walking times agree with the isochrones (reached in 5 min: walk p95 6-7 min); ~4,600 buildings are < 4 min
+from a bus stop by network but outside every 5-min isochrone (fences off the network).
+**Warsaw finals redone** (`script/run_warsaw_finals_mb.cmd`): the 5-min poster now uses
+`coverage_map_gates_mb.gpkg` / `buildings_gates_mb.gpkg` (routing fixes + road/rail barriers; 91 % of
+buildings within 10 %, 7.5 % more, 1.4 % fewer; 5,479 newly covered, 1,089 lost); old final in
+`png/archive/variants/..._old_routing.png`, comparison `png/archive/how_it_was_made/comparisons/warsaw_5min_old_vs_mb*.png`.
+**New 10-min poster** `png/how_many_rides_in_10_mins_2026_10_07_dark_bmy_bright_hq.png` (same 25 classes as
+5 min: 99th percentile 2,802 departures, so 3500+ still fits; median 204 vs 133 at 5 min, since each line
+counts once; isochrones avg 74.8 ha). `buildings_gates.gpkg` (old) is left untouched: ceny_mieszkan reads it.
 
 **2026-10-13: Berlin zoomed in** (`render_frame` = 80 % of the bbox, 37.0 x 31.0 km; isochrones
 unchanged, still pre-fix) and its 300 dpi final, JPEG and the collage redone. **Sketches** restyled
@@ -115,12 +129,12 @@ sketches, comparisons and old variants are in `png/archive/`, see "Directory str
 | San Francisco | `how_many_rides_in_5_mins_sanfrancisco_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/sanfrancisco/2026_10_11` | yes, + hills |
 | Zurich | `how_many_rides_in_5_mins_zurich_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/zurich/2026_10_11` | yes, + hills |
 | Amsterdam | `how_many_rides_in_5_mins_amsterdam_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/amsterdam/2026_10_10` | yes |
-| Warsaw | `how_many_rides_in_5_mins_2026_10_07_dark_bmy_bright_hq.png` | Wed 07.10.2026 | `_data/warsaw/2026_10_04` | **no** |
+| Warsaw | `how_many_rides_in_5_mins_2026_10_07_dark_bmy_bright_hq.png` (+ `..._10_mins_...`) | Wed 07.10.2026 | `_data/warsaw/2026_10_04` (`*_mb` files) | yes, + road/rail barriers |
 | Kraków | `how_many_rides_in_5_mins_krakow_2026_10_07_dark_bmy_bright_hq.png` | Wed 07.10.2026 | `_data/krakow/2026_10_04` | **no** |
 | Berlin | `how_many_rides_in_5_mins_berlin_2026_10_07_dark_bmy_bright_hq.png` | Wed 07.10.2026 | `_data/berlin/2026_10_07` | **no** |
 | Lublin | `how_many_rides_in_5_mins_lublin_2026_10_14_dark_bmy_bright_hq.png` | Wed 14.10.2026 | `_data/lublin/2026_10_09` | **no** |
 
-The four older finals predate the two routing fixes of 2026-10-10/11 (see "Known issues"): stops
+The three older finals (Kraków, Berlin, Lublin) predate the two routing fixes of 2026-10-10/11 (see "Known issues"): stops
 on streets crossing a download-tile border, or on one-way streets, got too small walk areas. A
 rerun is `python script/run_city.py --city X --date YYYYMMDD --from iso --final --detach` (under an
 hour each with raster coverage); not done yet, waiting for the user's go.
@@ -189,7 +203,7 @@ perceived-lightness floor (`--min-lightness 34`) and a brighter top (`--palette-
 
 ## Known issues / open decisions
 
-- **Old finals carry two routing errors** (Warsaw, Kraków, Berlin, Lublin; see Status):
+- **Old finals carry two routing errors** (Kraków, Berlin, Lublin; Warsaw fixed 2026-10-25; see Status):
   (1) 02 merged download tiles without dropping repeated ways and 03 *summed* duplicate matrix
   entries, so ways crossing a tile border were routed at 2-4x their length (6.8 % of New York's
   node pairs; E 23 St/1 Av 3.0 instead of ~12 ha); fixed: `_csr_min` (tag g7), 02 dedupes ways.
