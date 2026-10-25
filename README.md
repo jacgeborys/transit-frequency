@@ -24,6 +24,24 @@ Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in On
 
 ## Status (2026-10-25)
 
+**2026-10-25 evening: all finals except Kraków, Berlin, Lublin re-rendered in style E** (`script/run_style_e_batch.cmd`:
+New York, Boston, Paris, San Francisco, Zurich, Amsterdam, Tricity; old finals in `png/archive/finals_2026_10_13_pre_E/`;
+those had been rendered before style E was adopted). Three fixes went in first:
+- **05: buildings hidden by overlapping footprints.** Towers mapped with `building:part` polygons on top (9,287
+  untagged part polygons in Warsaw) got no raster cell and dropped out as uncovered (Generation Park Z: 0 instead
+  of 1,415). Now a second raster pass for buildings left without a cell (as in 06). Restored: Warsaw 5,427 (5 min) /
+  5,707 (10 min), New York 178, Boston 41, San Francisco 122, Zurich 24, Tricity 324. `buildings_gates.gpkg` of
+  Warsaw (read by ceny_mieszkan) is left as it was; `buildings_modes.gpkg`'s `check5_line_all` is the fixed equivalent.
+- **Warsaw's grey buildings came from an old extract.** Its own QGIS layout drew the uncovered buildings from
+  `mapy_warszawy_misc/data/osm` (ids differ for remapped buildings), so old outlines were drawn grey over coloured
+  ones (sports centre Grzybowska 35A). `render_qgis_style.py` now takes the buildings layer of own-layout cities from
+  `osm_basemap` (water and roads stay: no water.gpkg there, the roads style needs the old shapefile's fields).
+- **`_ram_guard.py` paused the only job**: its own command line holds the match patterns, so it counted itself as
+  a running chain process (deadlocks at 17:57 and 18:40). Now it ignores itself, never pauses the last running
+  process and resumes the smallest when everything is paused.
+Kraków, Berlin, Lublin are still pre-E and carry the old routing bug: rerun from iso first (`run_city.py --from iso --final`).
+Note: `%time%` inside a parenthesised block of a .cmd is expanded when the block is read, so batch log times are early.
+
 **2026-10-25: per-building access by mode for Warsaw (done)**, for the housing-price model in
 `D:\QGIS\ceny_mieszkan`. New `06_building_modes.py` -> `_data/warsaw/2026_10_04/buildings_modes.gpkg`
 (one row per building, `osm_id` as in `buildings_gates.gpkg`): for 5 and 10 min, departures 06-22 and
