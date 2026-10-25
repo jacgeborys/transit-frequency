@@ -53,7 +53,12 @@ buildings within 10 %, 7.5 % more, 1.4 % fewer; 5,479 newly covered, 1,089 lost)
 `png/archive/variants/..._old_routing.png`, comparison `png/archive/how_it_was_made/comparisons/warsaw_5min_old_vs_mb*.png`.
 **New 10-min poster** `png/how_many_rides_in_10_mins_2026_10_07_dark_bmy_bright_hq.png` (same 25 classes as
 5 min: 99th percentile 2,802 departures, so 3500+ still fits; median 204 vs 133 at 5 min, since each line
-counts once; isochrones avg 74.8 ha). `buildings_gates.gpkg` (old) is left untouched: ceny_mieszkan reads it.
+counts once; isochrones avg 74.8 ha). Rescaled variant `..._10_mins_..._hq_rescaled.png`: 25 classes 1..5000+
+(`--breaks 1,5,10,50,75,100,150,175,250,300,400,500,700,1000,1200,1400,1500,1750,2000,2500,2900,3200,4000,4500,5000
+--legend-ticks 1,10,100,250,500,1000,2000,5000`), matched to the 5-min poster's class percentiles (each colour
+holds the same share of buildings), because on the 5-min scale 15 % of buildings were 1000+ (5 % at 5 min) and
+the core became one yellow plateau. Legend labels only appear at values that are breaks; labels one class apart
+overlap. Comparison: `png/archive/how_it_was_made/comparisons/warsaw_10min_scale_5min_vs_rescaled.png`. `buildings_gates.gpkg` (old) is left untouched: ceny_mieszkan reads it.
 
 **2026-10-13: Berlin zoomed in** (`render_frame` = 80 % of the bbox, 37.0 x 31.0 km; isochrones
 unchanged, still pre-fix) and its 300 dpi final, JPEG and the collage redone. **Sketches** restyled
