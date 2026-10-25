@@ -79,6 +79,17 @@ def main():
                     f"{len(suspended)} suspended")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
+        elif suspended and not running and avail > args.low + 0.3:
+            # Everything is suspended: memory held by other programs (or by the suspended processes
+            # themselves) may never free up to --resume, which deadlocked a chain on 2026-10-25.
+            # Resume the smallest so work goes on; it is suspended again if RAM runs out.
+            p, r = min(suspended, key=lambda t: t[1])
+            try:
+                p.resume()
+                log(f"{avail:.1f} GB free, all chain work suspended: resumed pid {p.pid} ({r / 2**30:.1f} GB)")
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            suspended.remove((p, r))
         elif suspended and avail > args.resume:
             # resume the one that fits: smallest first when tight, so work continues
             p, r = min(suspended, key=lambda t: t[1])
