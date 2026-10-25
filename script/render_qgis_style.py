@@ -970,6 +970,8 @@ def draw_legend(fig, page_mm, item, legend_layer, to_fig, residents=False, shift
     ramp = bool(ticks) and r['type'] == 'graduatedSymbol'
     if ramp:
         sym_st['marginTop'] = 0.0   # swatches touch: one colour ramp
+        lab_st['size'] = legend_style(item, 'symbolLabel')['size'] * scale  # ticks are few: full-size labels
+        sw *= 1.3
         tick_set = set(ticks)
         last = len(entries) - 1
         entries = [(f'{lo:g}+' if k == last else (f'{lo:g}' if lo in tick_set else ''), sym)
@@ -1261,6 +1263,15 @@ def main():
             else:
                 print(f"  (template layer {layer['name']}: {new_path.name} missing for {city['name']}, skipped)")
         stack = kept
+    else:
+        # Own layout (Warsaw): its buildings layer still pointed at an older OSM extract, whose ids
+        # differ for remapped buildings, so their old outlines were drawn grey over the coloured
+        # ones (sports centre Grzybowska 35A). Buildings must come from the basemap 05 used.
+        for i, layer in enumerate(stack):
+            new_path = city['osm_dir'] / 'buildings.gpkg'
+            if layer['path'].name == 'buildings.gpkg' and layer['path'] != new_path and new_path.exists():
+                stack[i] = dict(layer, path=new_path, layername=None)
+                print(f"  buildings layer: {new_path} (layout had {layer['path']})")
     if args.hide:  # pure Schwarzplan: drop basemap layers by file stem
         stack = [l for l in stack if l['path'].stem not in set(args.hide)]
     # Water always sits above the coverage colours (you can't walk on water);
