@@ -1,0 +1,63 @@
+stop_id,opened,section,stop_name,note
+507703,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Dywizjonu 303,
+507704,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Dywizjonu 303,
+506103,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Kazubów,
+506104,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Kazubów,
+503407,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Metro Bemowo,platform on Powstańców Śląskich (section start; Górczewska platforms older)
+503408,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Metro Bemowo,platform on Powstańców Śląskich (section start; Górczewska platforms older)
+506305,20150214,Powstańców Śląskich: Metro Bemowo - Radiowa,Radiowa,platform on Powstańców Śląskich (section end)
+125305,20170227,Tarchomin Kościelny - Nowodwory,Nowodwory,
+125306,20170227,Tarchomin Kościelny - Nowodwory,Nowodwory,
+129805,20170227,Tarchomin Kościelny - Nowodwory,Stefanika,
+129806,20170227,Tarchomin Kościelny - Nowodwory,Stefanika,
+140605,20210904,Nowodwory - Winnica (Światowida),Grzymalitów,
+140606,20210904,Nowodwory - Winnica (Światowida),Grzymalitów,
+194703,20210904,Nowodwory - Winnica (Światowida),Winnica,
+194704,20210904,Nowodwory - Winnica (Światowida),Winnica,
+194705,20210904,Nowodwory - Winnica (Światowida),Winnica,
+194771,20210904,Nowodwory - Winnica (Światowida),Winnica,temporary platform code 71
+504403,20240305,Kasprzaka,Ordona - WSA,
+504404,20240305,Kasprzaka,Ordona - WSA,
+504303,20240305,Kasprzaka,PKP Wola (Kasprzaka),
+504304,20240305,Kasprzaka,PKP Wola (Kasprzaka),
+504203,20240305,Kasprzaka,Szpital Wolski,
+504204,20240305,Kasprzaka,Szpital Wolski,
+504207,20240305,Kasprzaka,Szpital Wolski,platform on Skierniewicka (junction with the new section; uncertain)
+504208,20240305,Kasprzaka,Szpital Wolski,platform on Skierniewicka (junction with the new section; uncertain)
+348003,20240514,Goworka - Spacerowa - Gagarina (Sielce),Goworka,
+305805,20240514,Goworka - Spacerowa - Gagarina (Sielce),Sielce,
+348901,20240514,Goworka - Spacerowa - Gagarina (Sielce),Sielecka,
+348902,20240514,Goworka - Spacerowa - Gagarina (Sielce),Sielecka,
+302605,20240514,Goworka - Spacerowa - Gagarina (Sielce),Spacerowa,
+302606,20240514,Goworka - Spacerowa - Gagarina (Sielce),Spacerowa,
+303203,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Czarnomorska,
+303204,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Czarnomorska,
+302701,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Dolna,
+302702,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Dolna,
+349101,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Idzikowskiego,
+349102,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Idzikowskiego,
+302801,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Kostrzewskiego,
+302802,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Kostrzewskiego,
+303103,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Mangalia,
+303104,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Mangalia,
+338505,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Miasteczko Wilanów,
+338506,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Miasteczko Wilanów,
+303505,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Nałęczowska,
+303506,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Nałęczowska,
+335305,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Oś Królewska,
+335306,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Oś Królewska,
+304205,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Sobieskiego,
+304206,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Sobieskiego,
+302601,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Spacerowa,on Belwederska/Sobieskiego (GTFS street)
+303305,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Św. Bonifacego,on Belwederska/Sobieskiego (GTFS street)
+303306,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Św. Bonifacego,on Belwederska/Sobieskiego (GTFS street)
+335403,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Świątynia Opatrzności Bożej,
+335404,20241029,Belwederska - Sobieskiego - Miasteczko Wilanów,Świątynia Opatrzności Bożej,
+309401,20250628,Św. Bonifacego - Stegny,Stegny,
+309406,20250628,Św. Bonifacego - Stegny,Stegny,
+303308,20250628,Św. Bonifacego - Stegny,Św. Bonifacego,
+322805,20251222,Rakowiecka: Puławska - Niepodległości,Metro Pole Mokotowskie,new platforms at the section end (uncertain)
+322806,20251222,Rakowiecka: Puławska - Niepodległości,Metro Pole Mokotowskie,new platforms at the section end (uncertain)
+361801,20251222,Rakowiecka: Puławska - Niepodległości,Mokotów - Ratusz,
+361802,20251222,Rakowiecka: Puławska - Niepodległości,Mokotów - Ratusz,
+300204,20251222,Rakowiecka: Puławska - Niepodległości,Rakowiecka,platform on Rakowiecka (line 19)

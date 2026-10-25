@@ -67,6 +67,16 @@ EIGHT = np.ones((3, 3), dtype=bool)
 # Raster cost per cell value (OPEN, BUILDING, BARRIER, GATE)
 COSTS_PUBLIC = np.array([1.0, np.inf, np.inf, np.inf])
 COSTS_RESIDENTS = np.array([1.0, np.inf, np.inf, 1.0])
+# Major roads and railways as barriers (--major-barriers, 2026-10-25): a major road can only
+# be crossed at a mapped crossing, a signal-controlled junction or where a footway/path goes
+# through the node; elsewhere each side of the road is its own sidewalk. Railways block the
+# off-network spread except where a walkable way crosses them.
+MAJOR_HIGHWAYS = {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link',
+                  'secondary', 'secondary_link'}
+PATH_HIGHWAYS = {'footway', 'path', 'pedestrian', 'steps', 'corridor', 'crossing'}
+BARRIER_RAILWAYS = {'rail', 'narrow_gauge', 'light_rail', 'monorail'}  # not tram, not subway
+SIDE_OFFSET_M = 5.0               # sidewalk copies of a road node sit this far off its centre line
+CROSSING_RADIUS_M = 3.0           # opening in the road/rail barrier at a crossing
 
 CHECKPOINT_EVERY = 250            # stops per checkpoint chunk (resume after a crash)
 DEFAULT_WORKERS = 3               # RAM-friendly: workers memory-map the shared arrays
@@ -181,12 +191,108 @@ def island_starts(gate_net, coords, sx, sy):
     return np.where(d <= ISLAND_STOP_M, isl[k], -1)
 
 
-def convert_to_sparse(G, crs_metric: str, access=None, dem=None):
+def split_major_roads(rows, cols, weights, private, highway, crossing, coords):
+    """
+    Major roads become barriers in the network: every node on a major road that is not a
+    crossing is split into one copy per side ("sector" between the major edges meeting
+    there). Side streets attach to the copy on their side, and the road itself carries one
+    edge per side (left sidewalk to left sidewalk). A node is crossable if mapped as a
+    crossing / traffic signals, or if footway-class edges leave it on different sides.
+    Input edges are directed, both directions present (as in G).
+    Returns new (rows, cols, weights, private), the original node of every node (copies
+    appended after the originals), their metric coordinates (copies SIDE_OFFSET_M off the
+    centre line, into their sector) and the crossable nodes on major roads.
+    """
+    rows, cols = np.asarray(rows), np.asarray(cols)
+    n = len(coords)
+    major = np.array([h in MAJOR_HIGHWAYS for h in highway])
+    path = np.array([h in PATH_HIGHWAYS for h in highway])
+    d = coords[cols] - coords[rows]
+    ang = np.arctan2(d[:, 1], d[:, 0])
+    order = np.lexsort((ang, rows))
+    starts = np.searchsorted(rows[order], np.arange(n + 1))
+    first = {}
+    for e, uv in enumerate(zip(rows.tolist(), cols.tolist())):
+        first.setdefault(uv, e)
+    rev_e = np.array([first[(v, u)] for u, v in zip(rows.tolist(), cols.tolist())])
+    sec = np.full(len(rows), -1)        # sector of a non-major edge at its row node
+    ccw = np.full(len(rows), -1)        # sectors left / right of a major edge at its row node
+    cw = np.full(len(rows), -1)
+    copy_of = {}                        # (node, sector) -> node index (sector 0 keeps the node)
+    new_xy, new_orig, offsets, crossable = [], [], {}, []
+    for u in np.where(np.bincount(rows[major], minlength=n) >= 2)[0]:
+        es_all = order[starts[u]:starts[u + 1]]
+        # parallel major edges to the same neighbour (two ways on one segment) count once
+        seen, es = {}, []
+        for e in es_all:
+            if major[e]:
+                if cols[e] in seen:
+                    continue
+                seen[cols[e]] = e
+            es.append(e)
+        es = np.array(es)
+        is_m = major[es]
+        k = int(is_m.sum())
+        if k < 2:
+            continue
+        if crossing[u]:
+            crossable.append(u)
+            continue
+        s_non = (np.cumsum(is_m) - 1) % k      # non-major edge: sector CCW of the last major
+        if len({int(s) for s, e in zip(s_non, es) if not major[e] and path[e]}) >= 2:
+            crossable.append(u)                # a footway goes through: crossing point
+            continue
+        majors = es[is_m]
+        for j, e in enumerate(majors):
+            ccw[e], cw[e] = j, (j - 1) % k
+        for e, sj, m in zip(es, s_non, is_m):
+            if not m:
+                sec[e] = sj
+        for e in es_all:                       # parallel duplicates: sectors of their twin
+            if major[e] and ccw[e] < 0:
+                t = seen[cols[e]]
+                ccw[e], cw[e] = ccw[t], cw[t]
+        a = ang[majors]
+        for j in range(k):
+            mid = a[j] + ((a[(j + 1) % k] - a[j]) % (2 * np.pi)) / 2
+            off = coords[u] + SIDE_OFFSET_M * np.array([np.cos(mid), np.sin(mid)])
+            if j == 0:
+                offsets[u] = off
+            else:
+                copy_of[(u, j)] = n + len(new_xy)
+                new_xy.append(off)
+                new_orig.append(u)
+
+    def node(u, s):
+        return copy_of.get((u, s), u) if s > 0 else u
+
+    R, C, W, P = [], [], [], []
+    for e in range(len(rows)):
+        u, v, f = rows[e], cols[e], rev_e[e]
+        p = private[e] if private is not None else False
+        if major[e]:
+            # left of u->v = CCW of the edge at u = CW of the reverse edge at v
+            for su, sv in ((ccw[e], cw[f]), (cw[e], ccw[f])):
+                R.append(node(u, su)); C.append(node(v, sv)); W.append(weights[e]); P.append(p)
+        else:
+            R.append(node(u, sec[e])); C.append(node(v, sec[f])); W.append(weights[e]); P.append(p)
+    xy = coords.copy()
+    for u, off in offsets.items():
+        xy[u] = off
+    xy = np.vstack([xy, np.array(new_xy).reshape(-1, 2)])
+    orig = np.concatenate([np.arange(n), np.array(new_orig, dtype=int)])
+    return R, C, W, P, orig, xy, np.array(crossable, dtype=int)
+
+
+def convert_to_sparse(G, crs_metric: str, access=None, dem=None, major=False):
     """
     Convert NetworkX graph to scipy sparse matrix + coordinate arrays.
     Returns: (node_ids, KDTree, coords_metric, sparse_matrix, node_to_idx, gate_net)
     gate_net is None unless access = {'closed_gates': set, 'private_ways': set}.
     The NetworkX graph can be freed after this to save memory.
+    major=True (needs access): major roads are crossed only at crossings (split_major_roads);
+    node_ids then has one entry per node incl. the sidewalk copies (node_to_idx: originals),
+    and gate_net['major'] holds the road/rail barrier input for BarrierGrid.
     """
     print("Converting graph to sparse matrix...", end=' ', flush=True)
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
@@ -211,7 +317,7 @@ def convert_to_sparse(G, crs_metric: str, access=None, dem=None):
         rows.append(ui)
         cols.append(vi)
         weights.append(length)
-        if dem is not None:
+        if dem is not None or major:
             highway.append(data.get('highway'))
             structure.append(data.get('structure'))
         if access is not None:
@@ -227,14 +333,41 @@ def convert_to_sparse(G, crs_metric: str, access=None, dem=None):
     if dem is not None:   # walking time on slopes, as a flat-equivalent distance (same both ways)
         weights = list(hill_weights(np.asarray(weights, float), coords_metric[rows],
                                     coords_metric[cols], highway, structure, dem))
+    node_ids = np.array(nids)
+    lonlats = np.column_stack([lons, lats])
+    major_info = None
+    if major:
+        if not G.graph.get('has_crossings'):
+            raise RuntimeError("--major-barriers needs a walking network with crossings: "
+                               "rebuild it with 02_fetch_walking_network.py (from its tile cache)")
+        crossing = np.array([bool(G.nodes[nd].get('crossing')) for nd in nids])
+        orig_xy = coords_metric
+        r_, c_ = np.asarray(rows), np.asarray(cols)
+        und = r_ < c_
+        ground = und & np.array([s is None for s in structure])
+        road = ground & np.array([h in MAJOR_HIGHWAYS for h in highway])
+        rows, cols, weights, private, orig, coords_metric, crossable = split_major_roads(
+            rows, cols, weights, private if access is not None else None, highway, crossing,
+            coords_metric)
+        major_info = {
+            'road_segs': np.stack([orig_xy[r_[road]], orig_xy[c_[road]]], axis=1),
+            'walk_segs': np.stack([orig_xy[r_[ground]], orig_xy[c_[ground]]], axis=1),
+            'crossings': orig_xy[crossable],
+        }
+        n_split = len(orig) - n_nodes
+        n_nodes = len(orig)
+        node_ids = node_ids[orig]
+        to_ll = Transformer.from_crs(crs_metric, "EPSG:4326", always_xy=True)
+        lonlats = np.column_stack(to_ll.transform(coords_metric[:, 0], coords_metric[:, 1]))
+        print(f"\n  Major roads: {n_split:,} sidewalk copies of road nodes, "
+              f"{len(crossable):,} crossing points, {road.sum():,} road segments",
+              end='\n  ', flush=True)
     rows, cols = rows + cols, cols + rows
     weights = weights + weights
     if access is not None:
         private = private + private
     sparse = _csr_min(weights, rows, cols, n_nodes)
 
-    node_ids = np.array(nids)
-    lonlats = np.column_stack([lons, lats])
     tree = cKDTree(lonlats)
 
     print(f"Done ({n_nodes:,} nodes, {n_dir:,} edges, walkable both ways)")
@@ -280,6 +413,7 @@ def convert_to_sparse(G, crs_metric: str, access=None, dem=None):
         'public_tree': cKDTree(lonlats[has_public]),
         'public_idx': np.where(has_public)[0],
         'island_lab': island_lab,   # island id per node (-1: not in a reclassified island)
+        'major': major_info,        # road/rail barrier input for BarrierGrid (None: off)
     }
     return node_ids, tree, coords_metric, sparse, node_to_idx, gate_net
 
@@ -353,7 +487,7 @@ class BarrierGrid:
     """City-wide raster of OPEN / BUILDING / BARRIER cells in the metric CRS."""
 
     def __init__(self, city: dict, crs_metric: str, coords_metric: np.ndarray,
-                 closed_gates=None):
+                 closed_gates=None, major=None):
         from rasterio.features import rasterize
         from rasterio.transform import from_origin
 
@@ -417,7 +551,43 @@ class BarrierGrid:
             print(f"{(~closed).sum():,} open, {closed.sum():,} closed")
             del gates, fence
 
+        if major is not None:
+            self._add_major_barriers(city, crs_metric, major, transform)
         self.costs_lookup = COSTS_PUBLIC
+
+    def _add_major_barriers(self, city, crs_metric, major, transform):
+        """Major roads (at ground level) and railways block the off-network spread like fences,
+        except at openings: road crossings, and wherever a walkable way meets the tracks.
+        Only open ground becomes barrier (fences, gates and buildings stay as they are)."""
+        import shapely
+        from rasterio.features import rasterize
+        print("  Rasterizing major roads + railways...", end=' ', flush=True)
+        roads = list(shapely.linestrings(major['road_segs']))
+        rails = []
+        rail_file = city['osm_dir'] / 'railways.gpkg'
+        if rail_file.exists():
+            r = gpd.read_file(rail_file)
+            r = r[r['railway'].isin(BARRIER_RAILWAYS) & r['bridge'].isna() & r['tunnel'].isna()]
+            if 'layer' in r.columns:
+                r = r[pd.to_numeric(r['layer'], errors='coerce').fillna(0) >= 0]
+            rails = [g for g in r.to_crs(crs_metric).geometry if g is not None]
+        line = rasterize(((g, 1) for g in roads + rails), out_shape=self.grid.shape,
+                         transform=transform, all_touched=True, dtype=np.uint8).astype(bool)
+        pts = list(shapely.points(major['crossings']))
+        if rails:
+            walk = shapely.linestrings(major['walk_segs'])
+            tree = shapely.STRtree(walk)
+            for g in rails:
+                hit = tree.query(g, predicate='intersects')
+                if len(hit):
+                    pts += [p for p in shapely.get_parts(shapely.intersection(walk[hit], g))
+                            if not p.is_empty]
+        if pts:
+            line &= ~rasterize(((p.buffer(CROSSING_RADIUS_M), 1) for p in pts),
+                               out_shape=self.grid.shape, transform=transform,
+                               all_touched=True, dtype=np.uint8).astype(bool)
+        self.grid[line & (self.grid == OPEN)] = BARRIER
+        print(f"{len(roads):,} road segments, {len(rails):,} rail lines, {len(pts):,} openings")
 
     @classmethod
     def from_array(cls, grid, x0, y1):
@@ -594,6 +764,13 @@ def stop_record(stop, poly, poly_res):
 _CTX = None  # per-process context: coords, matrices, grid
 
 
+def set_minutes(minutes):
+    """Walking time budget (default 5 min = 375 m); workers get it via the shared meta."""
+    global TIME_LIMIT, DISTANCE_M
+    TIME_LIMIT = minutes
+    DISTANCE_M = TIME_LIMIT * (WALKING_SPEED * 1000 / 60)
+
+
 def process_chunk(task):
     """task = (chunk_start, [(stop_dict, nn_idx, sx, sy), ...]) -> (chunk_start, results, skipped)."""
     chunk_start, records = task
@@ -610,7 +787,8 @@ def process_chunk(task):
 def save_shared(shared_dir, ctx):
     """Dump arrays for worker processes (they memory-map them instead of copying)."""
     shared_dir.mkdir(exist_ok=True)
-    meta = {'mats': {}, 'grid': None, 'gates': ctx['gate_net'] is not None}
+    meta = {'mats': {}, 'grid': None, 'gates': ctx['gate_net'] is not None,
+            'time_limit': TIME_LIMIT}
     np.save(shared_dir / 'coords.npy', np.ascontiguousarray(ctx['coords']))
     mats = ({'sparse': ctx['sparse']} if ctx['gate_net'] is None else
             {k: ctx['gate_net'][k] for k in ('public', 'full', 'two_layer')})
@@ -637,6 +815,7 @@ def _init_worker(shared_dir):
     d = Path(shared_dir)
     with open(d / 'meta.pkl', 'rb') as f:
         meta = pickle.load(f)
+    set_minutes(meta.get('time_limit', TIME_LIMIT))
     load = lambda name: np.load(d / f'{name}.npy', mmap_mode='c')
     mats = {name: csr_matrix((load(f'{name}_data'), load(f'{name}_indices'),
                               load(f'{name}_indptr')), shape=shape)
@@ -676,6 +855,11 @@ def main():
     parser.add_argument('--gates', action='store_true',
                         help='With --barriers: closed gates / private ways are residents-only '
                              '(outputs isochrones_gates + isochrones_gates_residents)')
+    parser.add_argument('--major-barriers', action='store_true',
+                        help='Implies --gates: major roads (secondary and up) crossable only at '
+                             'crossings, railways only where a way crosses them (output tag _mb)')
+    parser.add_argument('--minutes', type=float, default=TIME_LIMIT,
+                        help=f'Walking time (default {TIME_LIMIT}; other values add _<N>min to the output)')
     parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
                         help=f'Parallel worker processes (default {DEFAULT_WORKERS}; 1 = serial)')
     parser.add_argument('data_folder', nargs='?', help='Data folder (default: most recent)')
@@ -691,13 +875,18 @@ def main():
 
     city = get_city(args.city)
     crs_metric = city['crs_metric']
+    if args.major_barriers:
+        args.gates = True
     if args.gates:
         args.barriers = True
+    set_minutes(args.minutes)
 
     data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
     input_file = data_dir / "stops_trip_count.csv"
     variant = "_gates" if args.gates else "_barriers" if args.barriers else ""
-    suffix = variant + ("_sample" if args.sample else "")
+    tag = ("_mb" if args.major_barriers else "") + (
+        f"_{args.minutes:g}min" if args.minutes != 5 else "")
+    suffix = variant + tag + ("_sample" if args.sample else "")
     output_file = data_dir / f"isochrones{suffix}.gpkg"
     residents_file = data_dir / f"isochrones{variant}_residents{suffix[len(variant):]}.gpkg"
 
@@ -740,7 +929,7 @@ def main():
               f"{len(access['private_ways']):,} private ways")
     dem = load_dem(city)
     node_ids, tree, coords_metric, sparse, node_to_idx, gate_net = convert_to_sparse(
-        G, crs_metric, access, dem)
+        G, crs_metric, access, dem, major=args.major_barriers)
 
     # Free NetworkX graph to reclaim ~1.5 GB
     del G
@@ -748,7 +937,10 @@ def main():
     print("  (NetworkX graph freed)\n")
 
     grid = BarrierGrid(city, crs_metric, coords_metric,
-                       access['closed_gates'] if access else None) if args.barriers else None
+                       access['closed_gates'] if access else None,
+                       major=gate_net['major'] if gate_net is not None else None) if args.barriers else None
+    if gate_net is not None:
+        gate_net['major'] = None   # segments were only needed for the grid
 
     to_metric = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
 
@@ -761,6 +953,8 @@ def main():
         params += "_g10"  # bump when access_rules change (g7: duplicates not summed; g8: edges two-way; g10: island walks for stops inside)
     if dem is not None:
         params += f"_hill{DEM_SAMPLE_M:g}"
+    if args.major_barriers:
+        params += f"_mb1_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}"
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

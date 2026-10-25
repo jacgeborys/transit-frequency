@@ -81,9 +81,18 @@ def fetch_tile_json(tile, cache_dir):
     return data
 
 
+def is_crossing(tags):
+    """Node where pedestrians may cross the road it lies on (03 --major-barriers): mapped
+    crossings (highway=crossing, crossing=* except no) and signal-controlled junctions."""
+    if tags.get('crossing', 'no') != 'no' and tags.get('crossing') is not None:
+        return True
+    return tags.get('highway') in ('crossing', 'traffic_signals')
+
+
 def build_graph_from_jsons(jsons):
     """Build a walking NetworkX graph from Overpass JSON responses."""
     nodes = {}
+    crossings = set()
     ways = []
 
     seen_ways = set()
@@ -91,6 +100,8 @@ def build_graph_from_jsons(jsons):
         for elem in data.get('elements', []):
             if elem['type'] == 'node':
                 nodes[elem['id']] = (elem['lon'], elem['lat'])
+                if is_crossing(elem.get('tags', {})):
+                    crossings.add(elem['id'])
             elif elem['type'] == 'way' and elem['id'] not in seen_ways:
                 # Once per way: a way crossing a tile border comes back from every tile, and
                 # its copies became parallel edges (03 summed them into 2-4x the length)
@@ -100,6 +111,8 @@ def build_graph_from_jsons(jsons):
     G = nx.MultiDiGraph()
     for nid, (lon, lat) in nodes.items():
         G.add_node(nid, x=lon, y=lat)
+        if nid in crossings:
+            G.nodes[nid]['crossing'] = True
 
     for way in ways:
         tags = way.get('tags', {})
@@ -134,6 +147,7 @@ def build_graph_from_jsons(jsons):
 
     # Set CRS attribute for OSMnx compatibility
     G.graph['crs'] = 'EPSG:4326'
+    G.graph['has_crossings'] = True  # node attribute 'crossing' recorded (2026-10-25)
 
     return G
 

@@ -43,9 +43,11 @@ def recompute(city, st, stops):
         G = pickle.load(f)
     access = {'closed_gates': closed_gate_ids(osm, crs), 'private_ways': private_way_ids(osm)}
     dem = None if city.get('_flat') else iso.load_dem(city)   # --flat: compare without hills
-    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access, dem)
+    iso.set_minutes(city.get('_minutes', iso.TIME_LIMIT))
+    major = bool(city.get('_major'))
+    _, _, coords, _, _, gate_net = iso.convert_to_sparse(G, crs, access, dem, major=major)
     del G
-    grid = iso.BarrierGrid(city, crs, coords, access['closed_gates'])
+    grid = iso.BarrierGrid(city, crs, coords, access['closed_gates'], major=gate_net['major'])
     ctx = {'coords': coords, 'grid': grid, 'gate_net': gate_net, 'sparse': None}
     _, k = gate_net['public_tree'].query(np.column_stack([st.stop_lon, st.stop_lat]))
     isls = iso.island_starts(gate_net, coords, stops.geometry.x.to_numpy(), stops.geometry.y.to_numpy())
@@ -80,6 +82,11 @@ def main():
     parser.add_argument('--flat-outline', action='store_true',
                         help='Hill cities: also outline the walk area as if the city were flat (dashed)')
     parser.add_argument('--steps', action='store_true', help='Draw stairs (highway=steps)')
+    parser.add_argument('--major-barriers', action='store_true',
+                        help='With --recompute: major roads/railways as barriers (03 --major-barriers)')
+    parser.add_argument('--mb-outline', action='store_true',
+                        help='With --major-barriers: also outline the walk area without them (dashed)')
+    parser.add_argument('--minutes', type=float, default=5, help='With --recompute: walking time')
     parser.add_argument('--dpi', type=int, default=90)
     parser.add_argument('--no-legend', action='store_true', help='No legend box (for panels)')
     parser.add_argument('--cached', action='store_true',
@@ -89,6 +96,8 @@ def main():
 
     city = get_city(args.city)
     city['_flat'] = args.flat
+    city['_major'] = args.major_barriers
+    city['_minutes'] = args.minutes
     crs = city['crs_metric']
     osm = city['osm_dir']
     data_dir = Path(args.data_folder) if args.data_folder else sorted(
@@ -122,6 +131,9 @@ def main():
         flat = None
         if args.flat_outline:
             flat, _ = recompute({**city, '_flat': True}, st, stops)
+            flat.to_file(cache, layer='flat', driver='GPKG')
+        elif args.mb_outline:   # the dashed outline = same walk without road/rail barriers
+            flat, _ = recompute({**city, '_major': False}, st, stops)
             flat.to_file(cache, layer='flat', driver='GPKG')
     else:
         pub = gpd.read_file(data_dir / 'isochrones_gates.gpkg').to_crs(crs)
@@ -162,6 +174,7 @@ def main():
     priv = pw[is_priv]
     # Public walkable ways in green: streets + the public minor ways
     rd = gpd.read_file(osm / 'roads.gpkg', bbox=b4).to_crs(crs)
+    rd_all = rd
     rd = rd[~rd.highway.isin(['motorway', 'motorway_link', 'trunk', 'trunk_link'])]
     lines = ['LineString', 'MultiLineString']
     if args.paths == 'all':
@@ -182,6 +195,16 @@ def main():
         hl = gpd.read_file(args.highlight, bbox=b4).to_crs(crs)
         if len(hl):
             hl.plot(ax=ax, facecolor='none', edgecolor='#1565c0', hatch='///', lw=1.2, zorder=4)
+    if args.major_barriers:   # the barrier lines: major roads + railways
+        mj = rd_all[rd_all.highway.isin(['primary', 'primary_link', 'secondary', 'secondary_link',
+                                 'trunk', 'trunk_link'])]
+        mj = mj[mj.geom_type.isin(lines)]
+        if len(mj):
+            mj.plot(ax=ax, color='#c62828', lw=2.2, alpha=0.75, zorder=3)
+        rw = gpd.read_file(osm / 'railways.gpkg', bbox=b4).to_crs(crs)
+        rw = rw[rw.railway.isin(['rail', 'narrow_gauge', 'light_rail']) & rw.tunnel.isna()]
+        if len(rw):
+            rw.plot(ax=ax, color='#1a1a2e', lw=2.0, linestyle=(0, (3, 1.5)), zorder=3)
     if args.steps:
         stp = pw[pw.highway == 'steps']
         if len(stp):
@@ -197,8 +220,9 @@ def main():
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
     bs = args.building_status
-    handles = [Patch(color='#c6b6ea' if bs else '#d96b97', label='5-min walk, public'),
-               Patch(color='#f0c8e6' if bs else '#f8cfe0', label='5-min walk, residents only')]
+    mins = f'{args.minutes:g}-min'
+    handles = [Patch(color='#c6b6ea' if bs else '#d96b97', label=f'{mins} walk, public'),
+               Patch(color='#f0c8e6' if bs else '#f8cfe0', label=f'{mins} walk, residents only')]
     if bs:
         handles += [Patch(color='#5b2c8f', label='building reached'),
                     Patch(facecolor='white', edgecolor='#a8a8a8', hatch='//////', label='building not reached')]
@@ -213,6 +237,12 @@ def main():
         handles.append(Line2D([], [], color='#1a1a2e', lw=2.4, ls=(0, (0.6, 0.6)), label='stairs'))
     if args.flat_outline:
         handles.append(Line2D([], [], color='#1a1a2e', lw=1.3, ls=(0, (5, 3)), label='5-min walk if it were flat'))
+    elif args.mb_outline:
+        handles.append(Line2D([], [], color='#1a1a2e', lw=1.3, ls=(0, (5, 3)),
+                              label=f'{mins} walk without road/rail barriers'))
+    if args.major_barriers:
+        handles += [Line2D([], [], color='#c62828', lw=2.2, alpha=0.75, label='major road (barrier)'),
+                    Line2D([], [], color='#1a1a2e', lw=2.0, ls=(0, (3, 1.5)), label='railway (barrier)')]
     if args.highlight:
         handles.append(Patch(facecolor='none', edgecolor='#1565c0', hatch='///', label='highlighted'))
     if not args.no_legend:

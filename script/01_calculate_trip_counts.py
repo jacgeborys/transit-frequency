@@ -98,6 +98,8 @@ def expand_frequencies(data_dir: Path, active_service_ids: list, classify_fn) ->
                     'arrival_time': dep_str,
                     'departure_time': dep_str,
                     'route_id': route_id,
+                    'stop_sequence': st.get('stop_sequence'),
+                    'direction_id': tmpl.get('direction_id'),
                 })
             t += headway
 
@@ -105,37 +107,13 @@ def expand_frequencies(data_dir: Path, active_service_ids: list, classify_fn) ->
     return pd.DataFrame(rows)
 
 
-def find_latest_data_dir(city: dict) -> Path:
-    """Find the most recent data folder for a city."""
-    base = city['data_dir']
-    if not base.exists():
-        raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
-    data_dirs = sorted(
-        [d for d in base.iterdir() if d.is_dir() and (d / 'stops.txt').exists()],
-        key=lambda x: x.name, reverse=True
-    )
-    if not data_dirs:
-        raise FileNotFoundError(f"No GTFS data in {base}. Run 00_download_gtfs.py first.")
-    return data_dirs[0]
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Calculate trip counts per stop')
-    add_city_argument(parser)
-    parser.add_argument('date', nargs='?', help='Target date YYYYMMDD (default: auto-pick best weekday)')
-    parser.add_argument('data_folder', nargs='?', help='Data folder path (default: most recent)')
-    args = parser.parse_args()
-
-    city = get_city(args.city)
+def load_departures(city: dict, data_dir: Path, date: str = None, night: bool = False):
+    """
+    Stop times of the trips running on `date` (YYYYMMDD; default: auto-pick), within
+    06:00-22:00 by arrival time (night=True: outside it), with route_id, vehicle,
+    direction_id and last_stop. Returns (stop_times, stops).
+    """
     classify_vehicle = city['vehicle_classify']
-
-    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
-
-    print("=" * 60)
-    print(f"Trip Count Calculator — {city['name']}")
-    print("=" * 60)
-    print(f"Data: {data_dir}\n")
-
     # --- Load data ---
     print("Loading GTFS files...")
     stops_df = pd.read_csv(data_dir / "stops.txt", dtype={'stop_id': str})
@@ -146,8 +124,8 @@ def main():
     calendar_df['exception_type'] = calendar_df['exception_type'].astype(int)
 
     # --- Determine target date ---
-    if args.date:
-        target_date = args.date
+    if date:
+        target_date = date
     else:
         # Auto-pick: first available Monday (weekday with most service)
         active_dates = calendar_df[calendar_df['exception_type'] == 1]
@@ -210,6 +188,9 @@ def main():
         stop_times_df['trip_id'].isin(trips_filtered['trip_id'])
     ].copy()
     stop_times_filtered = stop_times_filtered.merge(trip_route, on='trip_id', how='left')
+    if 'direction_id' in trips_filtered.columns:
+        stop_times_filtered = stop_times_filtered.merge(
+            trips_filtered[['trip_id', 'direction_id']].drop_duplicates('trip_id'), on='trip_id', how='left')
 
     # --- Expand frequencies (metro, S-Bahn, etc.) ---
     if city.get('has_frequencies'):
@@ -217,17 +198,56 @@ def main():
         if not freq_rows.empty:
             stop_times_filtered = pd.concat([stop_times_filtered, freq_rows], ignore_index=True)
 
-    # --- Filter by time (6 AM - 10 PM) ---
+    # Last stop of each trip (arrivals only: nobody boards there) - used by 06_building_modes
+    if 'stop_sequence' in stop_times_filtered.columns:
+        seq = pd.to_numeric(stop_times_filtered['stop_sequence'], errors='coerce')
+        stop_times_filtered['last_stop'] = seq == seq.groupby(stop_times_filtered['trip_id']).transform('max')
+
+    # --- Filter by time (6 AM - 10 PM; night = the rest of the day) ---
     stop_times_filtered['time_parsed'] = stop_times_filtered['arrival_time'].apply(parse_gtfs_time)
     stop_times_filtered = stop_times_filtered.dropna(subset=['time_parsed'])
-    stop_times_filtered = stop_times_filtered[
-        (stop_times_filtered['time_parsed'] >= TIME_START) &
-        (stop_times_filtered['time_parsed'] < TIME_END)
-    ]
-    print(f"Stop times in {TIME_START}-{TIME_END}: {len(stop_times_filtered)}")
+    in_day = ((stop_times_filtered['time_parsed'] >= TIME_START) &
+              (stop_times_filtered['time_parsed'] < TIME_END))
+    stop_times_filtered = stop_times_filtered[~in_day if night else in_day]
+    print(f"Stop times {'outside' if night else 'in'} {TIME_START}-{TIME_END}: {len(stop_times_filtered)}")
 
     # --- Classify vehicles (GTFS route_type preferred, fallback to city rules) ---
     stop_times_filtered['vehicle'] = stop_times_filtered['route_id'].apply(classify_with_gtfs)
+
+    return stop_times_filtered, stops_df
+
+
+def find_latest_data_dir(city: dict) -> Path:
+    """Find the most recent data folder for a city."""
+    base = city['data_dir']
+    if not base.exists():
+        raise FileNotFoundError(f"No data directory for {city['name']}: {base}")
+    data_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir() and (d / 'stops.txt').exists()],
+        key=lambda x: x.name, reverse=True
+    )
+    if not data_dirs:
+        raise FileNotFoundError(f"No GTFS data in {base}. Run 00_download_gtfs.py first.")
+    return data_dirs[0]
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Calculate trip counts per stop')
+    add_city_argument(parser)
+    parser.add_argument('date', nargs='?', help='Target date YYYYMMDD (default: auto-pick best weekday)')
+    parser.add_argument('data_folder', nargs='?', help='Data folder path (default: most recent)')
+    args = parser.parse_args()
+
+    city = get_city(args.city)
+
+    data_dir = Path(args.data_folder) if args.data_folder else find_latest_data_dir(city)
+
+    print("=" * 60)
+    print(f"Trip Count Calculator — {city['name']}")
+    print("=" * 60)
+    print(f"Data: {data_dir}\n")
+
+    stop_times_filtered, stops_df = load_departures(city, data_dir, args.date)
 
     # --- Aggregate per stop ---
     vehicle_counts = (

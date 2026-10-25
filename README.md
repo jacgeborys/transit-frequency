@@ -22,7 +22,24 @@ Supports multiple cities — all scripts accept `--city <name>`.
 
 Project location: `D:\QGIS\TransitFrequency` (since 2026-10-10; previously in OneDrive on C:).
 
-## Status (2026-10-13)
+## Status (2026-10-25)
+
+**2026-10-25: per-building access by mode for Warsaw (in progress)**, for the housing-price model in
+`D:\QGIS\ceny_mieszkan`. New `06_building_modes.py` -> `_data/warsaw/2026_10_04/buildings_modes.gpkg`
+(one row per building, `osm_id` as in `buildings_gates.gpkg`): for 5 and 10 min, departures 06-22 and
+distinct lines by mode (metro/tram/bus/rail; KM `_BUS` = bus), each line *and direction* once at its best
+stop, departures only (no last-stop arrivals), taken at the building's best 2 m cell so the modes add up;
+`line<T>_all` = the old max_trips rule for comparison; night buses (N lines); `newtram<T>` = opening date of
+post-2015 tram sections in reach (`script/warsaw_tram_openings.csv`, 62 stops, 8 sections 2015-2025, from
+pl.wikipedia + Railway Gazette for Winnica 2021); walking minutes to the nearest stop per mode (cap 30).
+**Major roads and railways as barriers** (`03 --major-barriers`, outputs tagged `_mb`): secondary and up
+are crossable only at mapped crossings / traffic signals / where a footway goes through the node (road nodes
+split into one sidewalk copy per side, 5 m off the centre line); railways (rail, not tram/subway, not on
+bridges/in tunnels) and ground-level major roads block the 50 m raster spread except at openings. Needs
+crossings in the network: `02` now records them (Warsaw rebuilt from its tile cache; old pickle kept as
+`walking_network_2026_10_06.pkl.bak`). `03 --minutes N` for other walking times (`_<N>min`). `01`'s
+filtering moved into `load_departures()` (reused by 06). Network-level effect in Warsaw: 96 % of stops
+unchanged, trip-weighted reach -1 %. Run: `script/run_warsaw_modes.cmd` (03 mb 5 min, 03 mb 10 min, 06).
 
 **2026-10-13: Berlin zoomed in** (`render_frame` = 80 % of the bbox, 37.0 x 31.0 km; isochrones
 unchanged, still pre-fix) and its 300 dpi final, JPEG and the collage redone. **Sketches** restyled
