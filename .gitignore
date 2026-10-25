@@ -7,3 +7,6 @@ cache/
 
 3d/scenes/
 3d/renders/
+jobs/data/
+jobs/renders/
+jobs/logs/
