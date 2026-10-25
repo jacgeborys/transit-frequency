@@ -39,7 +39,12 @@ those had been rendered before style E was adopted). Three fixes went in first:
 - **`_ram_guard.py` paused the only job**: its own command line holds the match patterns, so it counted itself as
   a running chain process (deadlocks at 17:57 and 18:40). Now it ignores itself, never pauses the last running
   process and resumes the smallest when everything is paused.
-Kraków, Berlin, Lublin are still pre-E and carry the old routing bug: rerun from iso first (`run_city.py --from iso --final`).
+**Kraków, Berlin, Lublin: style E on the existing (pre-fix) walk areas** (`script/run_style_e_old_cities.cmd`, with the 05 tower fix;
+old finals in `png/archive/finals_2026_10_13_pre_E/`). Estimate of what a rerun from iso (`run_city.py --from iso --final`, ~1 h each)
+would change, from 250 recomputed stops per city (100 busiest + 150 random): median walk area +2 to +2.5 %, 55-62 % of stops within
+5 %, 17-19 % of stops > +25 % (one-way streets, tile borders), none smaller; weighted by departures +18 % Kraków, +10 % Lublin,
++15 % Berlin; busiest 100 stops median +4 % / +2 % / +9 %. Judged invisible at poster scale (colour classes span 20-25 %), visible
+only as brighter patches around single stops, so the rerun was skipped; still open if wanted. Berlin's render is 8868 x 7456 px.
 Note: `%time%` inside a parenthesised block of a .cmd is expanded when the block is read, so batch log times are early.
 
 **2026-10-25: per-building access by mode for Warsaw (done)**, for the housing-price model in
