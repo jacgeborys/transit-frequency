@@ -54,10 +54,18 @@ def max_per_building(buildings, coverage, cell=CELL_M, strip_m=STRIP_M):
         transform = from_origin(x0, top, cell, cell)
         cov = rasterize(zip(cov_geoms[ci], cov_vals[ci]), out_shape=(h, w),
                         transform=transform, dtype='int32')
-        bid = rasterize(zip(b_geoms[bi], b_ids[bi]), out_shape=(h, w),
-                        transform=transform, dtype='int32', all_touched=True)
-        mask = bid > 0
-        np.maximum.at(out, bid[mask], cov[mask])
+        todo = bi
+        while len(todo):
+            # Overlapping footprints hide each other in one raster: a tower fully covered by
+            # its building:part polygons got no cell (Generation Park Z, 0 instead of 1415).
+            # Buildings left without a cell get another pass on their own (fixed 2026-10-25)
+            bid = rasterize(zip(b_geoms[todo], b_ids[todo]), out_shape=(h, w),
+                            transform=transform, dtype='int32', all_touched=True)
+            mask = bid > 0
+            if not mask.any():
+                break
+            np.maximum.at(out, bid[mask], cov[mask])
+            todo = np.setdiff1d(todo, np.unique(bid[mask]) - 1)
     return out[1:]
 
 
