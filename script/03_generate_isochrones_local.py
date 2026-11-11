@@ -352,6 +352,9 @@ def convert_to_sparse(G, crs_metric: str, access=None, dem=None, major=False):
         major_info = {
             'road_segs': np.stack([orig_xy[r_[road]], orig_xy[c_[road]]], axis=1),
             'walk_segs': np.stack([orig_xy[r_[ground]], orig_xy[c_[ground]]], axis=1),
+            # bridges / tunnels: walkable, but the off-network spread must not start from them
+            # (a viaduct sidewalk would otherwise reach 50 m into the rail yard below)
+            'elev_segs': np.stack([orig_xy[r_[und & ~ground]], orig_xy[c_[und & ~ground]]], axis=1),
             'crossings': orig_xy[crossable],
         }
         n_split = len(orig) - n_nodes
@@ -551,6 +554,7 @@ class BarrierGrid:
             print(f"{(~closed).sum():,} open, {closed.sum():,} closed")
             del gates, fence
 
+        self.elevated = None
         if major is not None:
             self._add_major_barriers(city, crs_metric, major, transform)
         self.costs_lookup = COSTS_PUBLIC
@@ -588,16 +592,27 @@ class BarrierGrid:
                                all_touched=True, dtype=np.uint8).astype(bool)
         self.grid[line & (self.grid == OPEN)] = BARRIER
         print(f"{len(roads):,} road segments, {len(rails):,} rail lines, {len(pts):,} openings")
+        # Cells of bridge / tunnel walkways: the spread never starts from them (see
+        # create_isochrone_barriers), so nobody steps off a viaduct or up out of an underpass
+        # buffered by SIDE_OFFSET_M: the sidewalk copies of major roads run that far off the
+        # centre line (split_major_roads), and on a viaduct they are elevated too
+        elev = list(shapely.buffer(shapely.linestrings(major['elev_segs']), SIDE_OFFSET_M + CELL_M,
+                                   quad_segs=2)) if len(major['elev_segs']) else []
+        self.elevated = (rasterize(((g, 1) for g in elev), out_shape=self.grid.shape,
+                                   transform=transform, all_touched=True, dtype=np.uint8).astype(bool)
+                         if elev else None)
+        print(f"  Bridges/tunnels: {len(elev):,} walkway segments don't seed the spread")
 
     @classmethod
-    def from_array(cls, grid, x0, y1):
+    def from_array(cls, grid, x0, y1, elevated=None):
         self = cls.__new__(cls)
-        self.grid, self.x0, self.y1 = grid, x0, y1
+        self.grid, self.x0, self.y1, self.elevated = grid, x0, y1, elevated
         self.costs_lookup = COSTS_PUBLIC
         return self
 
-    def window(self, minx, miny, maxx, maxy):
-        """Grid slice and its affine transform for a metric bbox."""
+    def window(self, minx, miny, maxx, maxy, layer=None):
+        """Grid slice (or the same slice of `layer`, e.g. self.elevated) and its affine
+        transform for a metric bbox."""
         from rasterio.transform import from_origin
         h, w = self.grid.shape
         c0 = max(int((minx - self.x0) // CELL_M), 0)
@@ -605,15 +620,15 @@ class BarrierGrid:
         r0 = max(int((self.y1 - maxy) // CELL_M), 0)
         r1 = min(int((self.y1 - miny) // CELL_M) + 1, h)
         transform = from_origin(self.x0 + c0 * CELL_M, self.y1 - r0 * CELL_M, CELL_M, CELL_M)
-        return self.grid[r0:r1, c0:c1], transform
+        return (self.grid if layer is None else layer)[r0:r1, c0:c1], transform
 
 
-def _window_for(reachable, coords_metric, grid):
+def _window_for(reachable, coords_metric, grid, layer=None):
     reach_coords = coords_metric[reachable]
     pad = BUFFER_M + 2 * CELL_M
     minx, miny = reach_coords.min(axis=0) - pad
     maxx, maxy = reach_coords.max(axis=0) + pad
-    return grid.window(minx, miny, maxx, maxy)
+    return grid.window(minx, miny, maxx, maxy, layer)
 
 
 def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=False):
@@ -647,11 +662,20 @@ def create_isochrone_barriers(reachable, coords_metric, sparse, grid, residents=
     # cell: a sidewalk running along a fence would otherwise punch holes in it
     # (closed gates count as fence for the public run, same reason)
     fence = (win == BARRIER) | ((win == GATE) & (not residents))
+    # Bridge / tunnel walkways (--major-barriers): part of the walk area, but the spread
+    # neither starts from them nor treats them as passable ground - the cells below keep
+    # their own cost (a railway under a viaduct stays a barrier)
+    elev = (_window_for(reachable, coords_metric, grid, grid.elevated)[0]
+            if getattr(grid, 'elevated', None) is not None else np.zeros_like(seeds))
+    walkway = seeds & elev
+    seeds = seeds & ~elev
+    if not seeds.any():
+        seeds, walkway = walkway, np.zeros_like(seeds)  # all elevated: old behaviour
     costs[seeds & ~fence] = 1.0
     max_cells = BUFFER_M / CELL_M
     cum, _ = MCP_Geometric(costs).find_costs(np.argwhere(seeds),
                                              max_cumulative_cost=max_cells)
-    reached = cum <= max_cells
+    reached = (cum <= max_cells) | walkway
 
     # Buildings are one-way space: the walk spreads inside them like open ground
     # (same budget), but can't come back out, so a building is never a shortcut.
@@ -805,6 +829,9 @@ def save_shared(shared_dir, ctx):
     if ctx['grid'] is not None:
         np.save(shared_dir / 'grid.npy', ctx['grid'].grid)
         meta['grid'] = (ctx['grid'].x0, ctx['grid'].y1)
+        if getattr(ctx['grid'], 'elevated', None) is not None:
+            np.save(shared_dir / 'elevated.npy', ctx['grid'].elevated)
+            meta['elevated'] = True
     with open(shared_dir / 'meta.pkl', 'wb') as f:
         pickle.dump(meta, f)
 
@@ -820,7 +847,9 @@ def _init_worker(shared_dir):
     mats = {name: csr_matrix((load(f'{name}_data'), load(f'{name}_indices'),
                               load(f'{name}_indptr')), shape=shape)
             for name, shape in meta['mats'].items()}
-    grid = BarrierGrid.from_array(load('grid'), *meta['grid']) if meta['grid'] else None
+    grid = (BarrierGrid.from_array(load('grid'), *meta['grid'],
+                                   elevated=load('elevated') if meta.get('elevated') else None)
+            if meta['grid'] else None)
     gate_net = None
     if meta['gates']:
         gate_net = {k: mats[k] for k in ('public', 'full', 'two_layer')}
@@ -954,7 +983,7 @@ def main():
     if dem is not None:
         params += f"_hill{DEM_SAMPLE_M:g}"
     if args.major_barriers:
-        params += f"_mb1_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}"
+        params += f"_mb2_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}"  # mb2: no spread off bridges/tunnels
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 

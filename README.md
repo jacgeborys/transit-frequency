@@ -47,6 +47,18 @@ would change, from 250 recomputed stops per city (100 busiest + 150 random): med
 only as brighter patches around single stops, so the rerun was skipped; still open if wanted. Berlin's render is 8868 x 7456 px.
 Note: `%time%` inside a parenthesised block of a .cmd is expanded when the block is read, so batch log times are early.
 
+**2026-11-11: no spread off bridges / tunnels (`--major-barriers`, checkpoint tag `mb2`).** Every reached
+edge used to seed the 50 m off-network spread, and seed cells overrode barriers, so viaduct sidewalks
+"dripped" into what lies below (Trasa Toruńska over the Warszawa Toruńska rail yard: 17.7 ha, mostly yard).
+Now `walk_segs`' counterpart `elev_segs` (structure bridge/tunnel) is rasterized into `BarrierGrid.elevated`
+(buffered by SIDE_OFFSET_M + 1 cell: the sidewalk copies of major roads run 5 m off the centre line); the
+spread starts only from ground seeds, elevated cells keep the cost of what is below, and the walkway itself
+stays in the walk area. Shared with workers as `elevated.npy`. Test (22 stops): Toruńska 17.7 -> 13.8 ha,
+Most Poniatowskiego 28.2 -> 25.9 (strips over the river / Wisłostrada), Stadion, Praga, Kijowska -1..-5 %.
+Warsaw 5-min mb rerun (03, 04 gates_mb + residents, 05) for the MJN workshop; previous files in
+`_data/warsaw/2026_10_04/before_bridge_fix/`. **Not rerun yet:** 10-min mb, 06 building modes
+(ceny_mieszkan), posters, other cities.
+
 **2026-10-25: per-building access by mode for Warsaw (done)**, for the housing-price model in
 `D:\QGIS\ceny_mieszkan`. New `06_building_modes.py` -> `_data/warsaw/2026_10_04/buildings_modes.gpkg`
 (one row per building, `osm_id` as in `buildings_gates.gpkg`): for 5 and 10 min, departures 06-22 and
