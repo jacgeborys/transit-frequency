@@ -53,7 +53,11 @@ edge used to seed the 50 m off-network spread, and seed cells overrode barriers,
 Now `walk_segs`' counterpart `elev_segs` (structure bridge/tunnel) is rasterized into `BarrierGrid.elevated`
 (buffered by SIDE_OFFSET_M + 1 cell: the sidewalk copies of major roads run 5 m off the centre line); the
 spread starts only from ground seeds, elevated cells keep the cost of what is below, and the walkway itself
-stays in the walk area. Shared with workers as `elevated.npy`. Test (22 stops): Toruńska 17.7 -> 13.8 ha,
+stays in the walk area. Shared with workers as `elevated.npy`. **mb3 (2026-11-12):** + every road bridge of the
+basemap (`roads.gpkg` bridge=*, incl. car-only carriageways) +- ROAD_BRIDGE_M = 12 m, because bus platforms
+on a viaduct are often mapped without bridge=* (Trasa Toruńska: 13.8 -> 13.1 ha). Left over at Toruńska:
+service road way 29324856 runs inside the yard with level crossings and no access tag (OSM data, no
+buildings affected); footway 282277990 is a real PLK pedestrian level crossing. Test (22 stops): Toruńska 17.7 -> 13.8 ha,
 Most Poniatowskiego 28.2 -> 25.9 (strips over the river / Wisłostrada), Stadion, Praga, Kijowska -1..-5 %.
 Warsaw 5-min mb rerun (03, 04 gates_mb + residents, 05) for the MJN workshop; previous files in
 `_data/warsaw/2026_10_04/before_bridge_fix/`. **Not rerun yet:** 10-min mb, 06 building modes

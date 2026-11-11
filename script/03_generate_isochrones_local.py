@@ -63,6 +63,7 @@ DEM_SAMPLE_M = 10.0               # elevation sampled along every edge at this s
 STEPS_MIN_SLOPE = 0.25            # stairs: terrain models smooth them out, count at least this
 MAX_SLOPE = 1.0                   # clamp DEM noise (cliffs, retaining walls)
 GATE_RADIUS_M = 2.5               # opening punched into the fence around a gate node
+ROAD_BRIDGE_M = 12.0             # --major-barriers: road bridges (basemap) +- this don't seed the spread
 EIGHT = np.ones((3, 3), dtype=bool)
 # Raster cost per cell value (OPEN, BUILDING, BARRIER, GATE)
 COSTS_PUBLIC = np.array([1.0, np.inf, np.inf, np.inf])
@@ -598,6 +599,14 @@ class BarrierGrid:
         # centre line (split_major_roads), and on a viaduct they are elevated too
         elev = list(shapely.buffer(shapely.linestrings(major['elev_segs']), SIDE_OFFSET_M + CELL_M,
                                    quad_segs=2)) if len(major['elev_segs']) else []
+        # + every road bridge of the basemap (also car-only carriageways that aren't in the
+        # walking network), wide enough to cover bus platforms mapped without bridge=* on a
+        # viaduct (Trasa Toruńska over the Warszawa Toruńska yard, 2026-11-12)
+        road_file = city['osm_dir'] / 'roads.gpkg'
+        if road_file.exists():
+            rb = gpd.read_file(road_file, columns=['bridge', 'geometry'])
+            rb = rb[rb['bridge'].notna() & (rb['bridge'] != 'no')].to_crs(crs_metric)
+            elev += [g.buffer(ROAD_BRIDGE_M, quad_segs=2) for g in rb.geometry if g is not None]
         self.elevated = (rasterize(((g, 1) for g in elev), out_shape=self.grid.shape,
                                    transform=transform, all_touched=True, dtype=np.uint8).astype(bool)
                          if elev else None)
@@ -983,7 +992,7 @@ def main():
     if dem is not None:
         params += f"_hill{DEM_SAMPLE_M:g}"
     if args.major_barriers:
-        params += f"_mb2_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}"  # mb2: no spread off bridges/tunnels
+        params += f"_mb3_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}_rb{ROAD_BRIDGE_M:g}"  # mb2: no spread off bridges/tunnels; mb3: + road bridges
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
