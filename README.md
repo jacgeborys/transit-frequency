@@ -47,6 +47,13 @@ would change, from 250 recomputed stops per city (100 busiest + 150 random): med
 only as brighter patches around single stops, so the rerun was skipped; still open if wanted. Berlin's render is 8868 x 7456 px.
 Note: `%time%` inside a parenthesised block of a .cmd is expanded when the block is read, so batch log times are early.
 
+**2026-11-12: informal paths across tracks closed (`access_rules.INFORMAL_WAYS`, checkpoint `_g11`).** Ways mapped
+as plain paths / yard service roads across railway tracks at ground level (desire lines) are treated like private
+ways: Warszawa Praga yard paths 130675970 (10 tracks) and 282182839, yard road 29322564 (the real footbridge west
+of the station, way 250517157, is access=no, closed for years); Warszawa Toruńska yard road 29324856. Rail-barrier
+openings now come only from public ground ways (private / informal ones no longer punch holes). Praga 9.3 -> 7.2
+ha (nothing west of the tracks any more), Toruńska 13.1 -> 13.0. Warsaw 5-min mb rerun again.
+
 **2026-11-11: no spread off bridges / tunnels (`--major-barriers`, checkpoint tag `mb2`).** Every reached
 edge used to seed the 50 m off-network spread, and seed cells overrode barriers, so viaduct sidewalks
 "dripped" into what lies below (Trasa Toruńska over the Warszawa Toruńska rail yard: 17.7 ha, mostly yard).

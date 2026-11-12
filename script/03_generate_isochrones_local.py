@@ -346,13 +346,16 @@ def convert_to_sparse(G, crs_metric: str, access=None, dem=None, major=False):
         r_, c_ = np.asarray(rows), np.asarray(cols)
         und = r_ < c_
         ground = und & np.array([s is None for s in structure])
+        priv_dir = (np.asarray(private[:len(r_)], bool) if access is not None
+                    else np.zeros(len(r_), bool))
         road = ground & np.array([h in MAJOR_HIGHWAYS for h in highway])
         rows, cols, weights, private, orig, coords_metric, crossable = split_major_roads(
             rows, cols, weights, private if access is not None else None, highway, crossing,
             coords_metric)
         major_info = {
             'road_segs': np.stack([orig_xy[r_[road]], orig_xy[c_[road]]], axis=1),
-            'walk_segs': np.stack([orig_xy[r_[ground]], orig_xy[c_[ground]]], axis=1),
+            # openings in the rail barrier only where a public way crosses (not private / INFORMAL_WAYS)
+            'walk_segs': np.stack([orig_xy[r_[ground & ~priv_dir]], orig_xy[c_[ground & ~priv_dir]]], axis=1),
             # bridges / tunnels: walkable, but the off-network spread must not start from them
             # (a viaduct sidewalk would otherwise reach 50 m into the rail yard below)
             'elev_segs': np.stack([orig_xy[r_[und & ~ground]], orig_xy[c_[und & ~ground]]], axis=1),
@@ -988,7 +991,7 @@ def main():
     if args.barriers:
         params += f"_c{CELL_M:g}_b{BUILDING_RULE}_h{MIN_HOLE_M2}_p{MIN_PART_M2}"
     if args.gates:
-        params += "_g10"  # bump when access_rules change (g7: duplicates not summed; g8: edges two-way; g10: island walks for stops inside)
+        params += "_g11"  # bump when access_rules change (g7: duplicates not summed; g8: edges two-way; g10: island walks for stops inside; g11: INFORMAL_WAYS)
     if dem is not None:
         params += f"_hill{DEM_SAMPLE_M:g}"
     if args.major_barriers:

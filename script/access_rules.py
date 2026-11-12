@@ -80,10 +80,21 @@ def closed_gate_ids(osm_dir, crs_metric: str) -> set:
     return closed
 
 
+# Ways mapped as plain paths / service roads but not a real public route: desire lines and yard roads
+# across railway tracks at ground level. Closed to the public walk like private ways (2026-11-12).
+INFORMAL_WAYS = {
+    130675970: 'Warszawa Praga: highway=path across 10 tracks of the yard (desire line; the footbridge '
+               'west of the station is closed, access=no)',
+    282182839: 'Warszawa Praga: highway=path across 3 tracks south of the station (desire line)',
+    29322564: 'Warszawa Praga: yard service road across 3 tracks',
+    29324856: 'Warszawa Toruńska: 2.5 km yard service road with level crossings, no access tag',
+}
+
+
 def private_way_ids(osm_dir) -> set:
-    """OSM way ids of highways closed to the public on foot."""
+    """OSM way ids of highways closed to the public on foot (+ INFORMAL_WAYS)."""
     ways = gpd.read_file(osm_dir / 'private_ways.gpkg', ignore_geometry=True)
-    out = set()
+    out = set(INFORMAL_WAYS)
     for r in ways.itertuples():
         foot, access = _str(getattr(r, 'foot', None)), _str(getattr(r, 'access', None))
         if foot in CLOSED_VALS or (access in CLOSED_VALS and foot not in OPEN_VALS):
