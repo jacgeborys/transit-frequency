@@ -47,6 +47,10 @@ would change, from 250 recomputed stops per city (100 busiest + 150 random): med
 only as brighter patches around single stops, so the rerun was skipped; still open if wanted. Berlin's render is 8868 x 7456 px.
 Note: `%time%` inside a parenthesised block of a .cmd is expanded when the block is read, so batch log times are early.
 
+**2026-11-13: `03 --extra-edges links.csv`** (lon1,lat1,lon2,lat2): what-if links, each a public ground footway
+between the network nodes nearest to its ends (length = straight line); crossing a railway it also opens the
+rail barrier. Checkpoint tag gets `_x<md5>`. Used by the MJN workshop's scenarios (D:\QGIS\mjn_vibecoding\scripts).
+
 **2026-11-12: informal paths across tracks closed (`access_rules.INFORMAL_WAYS`, checkpoint `_g11`).** Ways mapped
 as plain paths / yard service roads across railway tracks at ground level (desire lines) are treated like private
 ways: Warszawa Praga yard paths 130675970 (10 tracks) and 282182839, yard road 29322564 (the real footbridge west

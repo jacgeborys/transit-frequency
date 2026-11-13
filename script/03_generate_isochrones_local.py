@@ -108,6 +108,25 @@ def load_network(city: dict):
     return None
 
 
+def add_extra_edges(G, csv_path, crs_metric):
+    """What-if links: each CSV row (lon1, lat1, lon2, lat2) becomes a public, ground-level footway
+    (both directions) between the network nodes nearest to its two ends, as long as the straight
+    line between those nodes. Crossing a railway it also opens the rail barrier there."""
+    links = pd.read_csv(csv_path)
+    to_m = Transformer.from_crs("EPSG:4326", crs_metric, always_xy=True)
+    nids = list(G.nodes())
+    xy = np.column_stack(to_m.transform([G.nodes[n]['x'] for n in nids], [G.nodes[n]['y'] for n in nids]))
+    tree = cKDTree(xy)
+    for i, r in links.iterrows():
+        ends = np.column_stack(to_m.transform([r.lon1, r.lon2], [r.lat1, r.lat2]))
+        d, k = tree.query(ends)
+        u, v = nids[k[0]], nids[k[1]]
+        length = float(np.hypot(*(xy[k[0]] - xy[k[1]])))
+        for a, b in ((u, v), (v, u)):
+            G.add_edge(a, b, length=length, highway='footway', osmid=-(i + 1))
+        print(f"  extra edge {i + 1}: {length:.0f} m (ends snapped {d[0]:.0f} / {d[1]:.0f} m)")
+
+
 def _csr_min(weights, rows, cols, n):
     """Sparse matrix keeping the SHORTEST of duplicate (row, col) entries.
 
@@ -899,6 +918,9 @@ def main():
     parser.add_argument('--major-barriers', action='store_true',
                         help='Implies --gates: major roads (secondary and up) crossable only at '
                              'crossings, railways only where a way crosses them (output tag _mb)')
+    parser.add_argument('--extra-edges', type=Path, default=None,
+                        help='CSV lon1,lat1,lon2,lat2: new public footpaths between the nearest network '
+                             'nodes (what-if: a new link, underpass, opened fence)')
     parser.add_argument('--minutes', type=float, default=TIME_LIMIT,
                         help=f'Walking time (default {TIME_LIMIT}; other values add _<N>min to the output)')
     parser.add_argument('--workers', type=int, default=DEFAULT_WORKERS,
@@ -960,6 +982,8 @@ def main():
     G = load_network(city)
     if G is None:
         return
+    if args.extra_edges:
+        add_extra_edges(G, args.extra_edges, crs_metric)
 
     access = None
     if args.gates:
@@ -996,6 +1020,9 @@ def main():
         params += f"_hill{DEM_SAMPLE_M:g}"
     if args.major_barriers:
         params += f"_mb3_o{SIDE_OFFSET_M:g}_r{CROSSING_RADIUS_M:g}_rb{ROAD_BRIDGE_M:g}"  # mb2: no spread off bridges/tunnels; mb3: + road bridges
+    if args.extra_edges:
+        import hashlib
+        params += "_x" + hashlib.md5(args.extra_edges.read_bytes()).hexdigest()[:8]
     partial_dir = data_dir / f".partial_isochrones{suffix}_{params}"
     partial_dir.mkdir(exist_ok=True)
 
