@@ -65,7 +65,10 @@ POSTER = {
     'gdansk': {'city': 'GDAŃSK', **PL},
     'tricity': {'city': 'TRÓJMIASTO', **PL},
     'lublin': {'city': 'LUBLIN', **PL},
-    'bialapodlaska': {'city': 'BIAŁA PODLASKA', **PL},
+    # small town: buildings reach at most ~205 departures (95th pct 150), so its own 25 classes up to 400+
+    'bialapodlaska': {'city': 'BIAŁA PODLASKA', **PL, 'extra': [
+        '--breaks', '1,3,5,8,10,15,20,25,30,40,50,60,70,80,90,100,120,140,160,180,200,250,300,350,400',
+        '--legend-ticks', '1,10,50,100,200,400']},
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},
     'zurich': {'city': 'ZÜRICH', **DE_CH},

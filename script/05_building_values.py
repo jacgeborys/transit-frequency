@@ -8,6 +8,8 @@ the renderer: their mapped indoor corridors would otherwise dominate.
 
 With a residents coverage map (gate mode), buildings reached only through
 closed gates get their value from it and are flagged `residents_only`.
+Cities with `implicit_front_gate_m` (cities.py): uncovered plot-sized buildings take the best
+public walk area within that distance (gateless perimeter fences), flagged `front_gate`.
 
 Usage:
     python 05_building_values.py --city krakow --variant gates [data_folder]
@@ -28,6 +30,7 @@ CELL_M = 3.0
 STRIP_M = 3000          # rasterize in 3 km strips to keep RAM low
 BIG_BUILDING_M2 = 5000
 EXCLUDED_BUILDING_TYPES = {'roof', 'carport', 'service'}  # as in the QGIS buildings layer
+FRONT_GATE_MAX_M2 = 1000  # implicit front gates: plot-sized buildings only (houses, outbuildings)
 
 
 def max_per_building(buildings, coverage, cell=CELL_M, strip_m=STRIP_M):
@@ -105,12 +108,29 @@ def main():
         only = (b['max_trips'] == 0) & (res > 0)
         b.loc[only, 'max_trips'] = res[only.to_numpy()]
         b.loc[only, 'residents_only'] = True
+    b['front_gate'] = False
+    gate_m = city.get('implicit_front_gate_m')
+    if gate_m:
+        # Opt-in per city (2026-11-16, Biała Podlaska): blocks of detached houses mapped as one
+        # perimeter fence without gates are closed to every walk, although each plot has a gate to
+        # its street. A plot-sized building still uncovered takes the best public walk area within
+        # gate_m of its footprint, as if through its front gate; flagged residents_only as well.
+        todo = (b['max_trips'] == 0) & (b.geometry.area <= FRONT_GATE_MAX_M2)
+        if todo.any():
+            near = b.loc[todo, ['geometry']].copy()
+            near['geometry'] = near.geometry.buffer(gate_m)
+            val = max_per_building(near.reset_index(drop=True), coverage)
+            hit = np.zeros(len(b), bool)
+            hit[np.flatnonzero(todo.to_numpy())[val > 0]] = True
+            b.loc[hit, 'max_trips'] = val[val > 0]
+            b.loc[hit, ['residents_only', 'front_gate']] = True
+            print(f"front gates ({gate_m} m): {hit.sum():,} buildings", end=' ')
     print("done")
 
     b['area_m2'] = b.geometry.area.round(0)
     b['big'] = b['area_m2'] > BIG_BUILDING_M2
     b = b[(b['max_trips'] > 0) | b['big']]  # uncovered small buildings keep the basemap style
-    keep = [c for c in ['osm_id', 'max_trips', 'residents_only', 'area_m2', 'big', 'geometry']
+    keep = [c for c in ['osm_id', 'max_trips', 'residents_only', 'front_gate', 'area_m2', 'big', 'geometry']
             if c in b.columns]
     b[keep].to_crs(4326).to_file(out_file, driver='GPKG')
     print(f"Saved {out_file.name}: {(b['max_trips'] > 0).sum():,} covered buildings "

@@ -456,6 +456,9 @@ CITIES['bialapodlaska'] = {
     'has_frequencies': False,
     'osm_pbf': ['europe/poland/lubelskie'],
     'network_tiles': 2,
+    # Detached-house blocks mapped as one perimeter fence without gates (e.g. Orzechowa): houses take
+    # the walk area within 30 m of their footprint, as through their front gate (05)
+    'implicit_front_gate_m': 30,
     'template': 'krakow',
     # EPSG:2180 m: bus stop extent + 300 m
     'render_frame': (773970, 466100, 790310, 476690),

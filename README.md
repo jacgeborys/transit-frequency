@@ -354,6 +354,10 @@ export_layout.py (QGIS python)          -- Exact export of the QGIS layout, proj
    for a rotated map, `legend_corner`), optionally `'hills': True` + `dem` (`swissalti3d`,
    `usgs13`; then `python fetch_dem.py --city X`), `gtfs_extend_calendar` (stale feeds),
    `{secret:NAME}` in a URL for API keys (read from the gitignored `.secrets/NAME.txt`).
+   A local path instead of a URL copies a GTFS zip built elsewhere (Biała Podlaska). Optional
+   `implicit_front_gate_m` (05): uncovered plot-sized buildings (<= 1000 m2) take the best public walk
+   area within that distance, for towns whose detached-house blocks are mapped as one perimeter fence
+   without gates (flagged `front_gate` + `residents_only`). Per-city colour classes: `extra` in `POSTER`.
 2. **Poster texts**: add an entry to `POSTER` in `script/render_poster.py` (city name,
    language; English template `EN` is there).
 3. **Run** everything with one command (hidden, outside the session; milestones in
