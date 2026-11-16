@@ -438,6 +438,30 @@ CITIES['boston'] = {
 }
 
 
+# Biała Podlaska (2026-11-16): MZK city buses, own GTFS converted from the operator's timetable
+# export (D:\QGIS\gtfs_biala_podlaska, valid 10.11-31.12.2026) + regional trains. Frame = all bus
+# stops (village loops included) + 300 m, 16.3 x 10.6 km.
+CITIES['bialapodlaska'] = {
+    'name': 'Biała Podlaska',
+    # Covers the render frame below + 400 m
+    'bbox': {'south': 51.990, 'west': 22.986, 'north': 52.083, 'east': 23.245},
+    'crs_metric': 'EPSG:2180',
+    'gtfs': {
+        'mzk': 'D:/QGIS/gtfs_biala_podlaska/data/gtfs.zip',          # local, rebuilt by convert_to_gtfs.py
+        'trains': 'https://mkuran.pl/gtfs/polish_trains.zip',        # PolRegio, IC; clipped to the bbox
+    },
+    'gtfs_merge': 'prefixed',
+    'exact_service_match': True,
+    'vehicle_classify': _route_type_only,
+    'has_frequencies': False,
+    'osm_pbf': ['europe/poland/lubelskie'],
+    'network_tiles': 2,
+    'template': 'krakow',
+    # EPSG:2180 m: bus stop extent + 300 m
+    'render_frame': (773970, 466100, 790310, 476690),
+}
+
+
 def get_city(name: str) -> dict:
     """Get city config by name (case-insensitive). Raises KeyError if not found."""
     key = name.lower().strip()

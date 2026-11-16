@@ -65,6 +65,7 @@ POSTER = {
     'gdansk': {'city': 'GDAŃSK', **PL},
     'tricity': {'city': 'TRÓJMIASTO', **PL},
     'lublin': {'city': 'LUBLIN', **PL},
+    'bialapodlaska': {'city': 'BIAŁA PODLASKA', **PL},
     'berlin': {'city': 'BERLIN', **DE},
     'amsterdam': {'city': 'AMSTERDAM', **NL},
     'zurich': {'city': 'ZÜRICH', **DE_CH},
