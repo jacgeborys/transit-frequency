@@ -51,25 +51,21 @@ def download_and_extract(url: str, name: str, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     zip_path = output_dir / f'{name}.zip'
 
-    if not url.startswith(('http://', 'https://')):  # local zip (feeds built here, e.g. Biała Podlaska)
-        logger.info(f'Copying {name} from {url}')
-        shutil.copyfile(url, zip_path)
-    else:
-        logger.info(f'Downloading {name} from {url}')   # with the {secret:...} placeholder, not the key
-        response = requests.get(resolve_secrets(url), stream=True, timeout=60,
-                                headers={'User-Agent': 'transit-frequency-map/1.0 '
-                                                       '(+https://github.com/jacgeborys/transit-frequency)'})
-        response.raise_for_status()
+    logger.info(f'Downloading {name} from {url}')   # with the {secret:...} placeholder, not the key
+    response = requests.get(resolve_secrets(url), stream=True, timeout=60,
+                            headers={'User-Agent': 'transit-frequency-map/1.0 '
+                                                   '(+https://github.com/jacgeborys/transit-frequency)'})
+    response.raise_for_status()
 
-        total = int(response.headers.get('content-length', 0))
-        downloaded = 0
-        with open(zip_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                downloaded += len(chunk)
-                f.write(chunk)
-                if total:
-                    print(f'\r  {name}: {downloaded / total * 100:.1f}%', end='')
-        print()
+    total = int(response.headers.get('content-length', 0))
+    downloaded = 0
+    with open(zip_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            downloaded += len(chunk)
+            f.write(chunk)
+            if total:
+                print(f'\r  {name}: {downloaded / total * 100:.1f}%', end='')
+    print()
 
     extract_dir = output_dir / name
     if extract_dir.exists():
